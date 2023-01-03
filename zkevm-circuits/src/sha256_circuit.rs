@@ -2,3 +2,5 @@
 
 /// sha256 bit
 pub mod sha256_bit;
+/// Util
+pub mod util;

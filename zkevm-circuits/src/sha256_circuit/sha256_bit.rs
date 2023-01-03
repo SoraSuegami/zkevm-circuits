@@ -1,3 +1,4 @@
+use crate::sha256_circuit::util::*;
 use crate::{
     evm_circuit::util::{constraint_builder::BaseConstraintBuilder, not, rlc},
     keccak_circuit::util::compose_rlc,
@@ -14,134 +15,136 @@ use halo2_proofs::{
 use log::{debug, info};
 use std::{env::var, marker::PhantomData, vec};
 
-const NUM_BITS_PER_BYTE: usize = 8;
-const NUM_BYTES_PER_WORD: usize = 4;
-const NUM_BITS_PER_WORD: usize = NUM_BYTES_PER_WORD * NUM_BITS_PER_BYTE;
-const NUM_BITS_PER_WORD_W: usize = NUM_BITS_PER_WORD + 2;
-const NUM_BITS_PER_WORD_EXT: usize = NUM_BITS_PER_WORD + 3;
-const NUM_ROUNDS: usize = 64;
-const RATE: usize = 16 * NUM_BYTES_PER_WORD;
-const RATE_IN_BITS: usize = RATE * NUM_BITS_PER_BYTE;
-const NUM_WORDS_TO_ABSORB: usize = 16;
-const ABSORB_WIDTH_PER_ROW_BYTES: usize = 4;
-const NUM_BITS_PADDING_LENGTH: usize = 64;
-const NUM_START_ROWS: usize = 4;
-const NUM_END_ROWS: usize = 4;
-const NUM_BYTES_FINAL_HASH: usize = 32;
-const MAX_DEGREE: usize = 5;
+// const NUM_BITS_PER_BYTE: usize = 8;
+// const NUM_BYTES_PER_WORD: usize = 4;
+// const NUM_BITS_PER_WORD: usize = NUM_BYTES_PER_WORD * NUM_BITS_PER_BYTE;
+// const NUM_BITS_PER_WORD_W: usize = NUM_BITS_PER_WORD + 2;
+// const NUM_BITS_PER_WORD_EXT: usize = NUM_BITS_PER_WORD + 3;
+// const NUM_ROUNDS: usize = 64;
+// const RATE: usize = 16 * NUM_BYTES_PER_WORD;
+// const RATE_IN_BITS: usize = RATE * NUM_BITS_PER_BYTE;
+// const NUM_WORDS_TO_ABSORB: usize = 16;
+// const ABSORB_WIDTH_PER_ROW_BYTES: usize = 4;
+// const NUM_BITS_PADDING_LENGTH: usize = 64;
+// const NUM_START_ROWS: usize = 4;
+// const NUM_END_ROWS: usize = 4;
+// const NUM_BYTES_FINAL_HASH: usize = 32;
+// const MAX_DEGREE: usize = 5;
 
-const ROUND_CST: [u32; NUM_ROUNDS] = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-];
+// const ROUND_CST: [u32; NUM_ROUNDS] = [
+//     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+// 0x923f82a4, 0xab1c5ed5,     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+// 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,     0xe49b69c1, 0xefbe4786,
+// 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+//     0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+// 0x06ca6351, 0x14292967,     0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+// 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,     0xa2bfe8a1, 0xa81a664b,
+// 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+//     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+// 0x5b9cca4f, 0x682e6ff3,     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+// 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2, ];
 
-const H: [u32; 8] = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-];
+// const H: [u32; 8] = [
+//     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+// 0x1f83d9ab, 0x5be0cd19, ];
 
-/// Decodes be bits
-pub mod decode {
-    use eth_types::Field;
-    use gadgets::util::Expr;
-    use halo2_proofs::plonk::Expression;
+// /// Decodes be bits
+// pub mod decode {
+//     use eth_types::Field;
+//     use gadgets::util::Expr;
+//     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) -> Expression<F> {
-        let mut value = 0.expr();
-        let mut multiplier = F::one();
-        for bit in bits.iter().rev() {
-            value = value + bit.expr() * multiplier;
-            multiplier *= F::from(2);
-        }
-        value
-    }
+//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) -> Expression<F> {
+//         let mut value = 0.expr();
+//         let mut multiplier = F::one();
+//         for bit in bits.iter().rev() {
+//             value = value + bit.expr() * multiplier;
+//             multiplier *= F::from(2);
+//         }
+//         value
+//     }
 
-    pub(crate) fn value(bits: &[u8]) -> u64 {
-        let mut value = 0u64;
-        for (idx, &bit) in bits.iter().rev().enumerate() {
-            value += (bit as u64) << idx;
-        }
-        value
-    }
-}
+//     pub(crate) fn value(bits: &[u8]) -> u64 {
+//         let mut value = 0u64;
+//         for (idx, &bit) in bits.iter().rev().enumerate() {
+//             value += (bit as u64) << idx;
+//         }
+//         value
+//     }
+// }
 
-/// Rotates bits to the right
-pub mod rotate {
-    use eth_types::Field;
-    use halo2_proofs::plonk::Expression;
+// /// Rotates bits to the right
+// pub mod rotate {
+//     use eth_types::Field;
+//     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) -> Vec<Expression<F>> {
-        let mut rotated = bits.to_vec();
-        rotated.rotate_right(count);
-        rotated
-    }
+//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) ->
+// Vec<Expression<F>> {         let mut rotated = bits.to_vec();
+//         rotated.rotate_right(count);
+//         rotated
+//     }
 
-    pub(crate) fn value(value: u64, count: u32) -> u64 {
-        ((value as u32).rotate_right(count)) as u64
-    }
-}
+//     pub(crate) fn value(value: u64, count: u32) -> u64 {
+//         ((value as u32).rotate_right(count)) as u64
+//     }
+// }
 
-/// Shifts bits to the right
-pub mod shift {
-    use super::NUM_BITS_PER_WORD;
-    use eth_types::Field;
-    use gadgets::util::Expr;
-    use halo2_proofs::plonk::Expression;
+// /// Shifts bits to the right
+// pub mod shift {
+//     use super::NUM_BITS_PER_WORD;
+//     use eth_types::Field;
+//     use gadgets::util::Expr;
+//     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) -> Vec<Expression<F>> {
-        let mut res = vec![0.expr(); count];
-        res.extend_from_slice(&bits[0..NUM_BITS_PER_WORD - count]);
-        res
-    }
+//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) ->
+// Vec<Expression<F>> {         let mut res = vec![0.expr(); count];
+//         res.extend_from_slice(&bits[0..NUM_BITS_PER_WORD - count]);
+//         res
+//     }
 
-    pub(crate) fn value(value: u64, count: u32) -> u64 {
-        ((value as u32) >> count) as u64
-    }
-}
+//     pub(crate) fn value(value: u64, count: u32) -> u64 {
+//         ((value as u32) >> count) as u64
+//     }
+// }
 
-/// Convert be bits to le bytes
-pub mod to_le_bytes {
-    use crate::keccak_circuit::util::to_bytes;
-    use eth_types::Field;
-    use halo2_proofs::plonk::Expression;
+// /// Convert be bits to le bytes
+// pub mod to_le_bytes {
+//     use crate::keccak_circuit::util::to_bytes;
+//     use eth_types::Field;
+//     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) -> Vec<Expression<F>> {
-        to_bytes::expr(&bits.iter().rev().cloned().collect::<Vec<_>>())
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-    }
+//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) ->
+// Vec<Expression<F>> {         to_bytes::expr(&bits.iter().rev().cloned().
+// collect::<Vec<_>>())             .into_iter()
+//             .rev()
+//             .collect::<Vec<_>>()
+//     }
 
-    pub(crate) fn value(bits: &[u8]) -> Vec<u8> {
-        to_bytes::value(&bits.iter().rev().copied().collect::<Vec<u8>>())
-            .into_iter()
-            .rev()
-            .collect::<Vec<u8>>()
-    }
-}
+//     pub(crate) fn value(bits: &[u8]) -> Vec<u8> {
+//         to_bytes::value(&bits.iter().rev().copied().collect::<Vec<u8>>())
+//             .into_iter()
+//             .rev()
+//             .collect::<Vec<u8>>()
+//     }
+// }
 
-/// Converts bytes into bits
-fn into_bits(bytes: &[u8]) -> Vec<u8> {
-    let mut bits: Vec<u8> = vec![0; bytes.len() * 8];
-    for (byte_idx, byte) in bytes.iter().enumerate() {
-        for idx in 0u64..8 {
-            bits[byte_idx * 8 + (idx as usize)] = (*byte >> (7 - idx)) & 1;
-        }
-    }
-    bits
-}
+// /// Converts bytes into bits
+// fn into_bits(bytes: &[u8]) -> Vec<u8> {
+//     let mut bits: Vec<u8> = vec![0; bytes.len() * 8];
+//     for (byte_idx, byte) in bytes.iter().enumerate() {
+//         for idx in 0u64..8 {
+//             bits[byte_idx * 8 + (idx as usize)] = (*byte >> (7 - idx)) & 1;
+//         }
+//     }
+//     bits
+// }
 
-fn get_degree() -> usize {
-    var("DEGREE")
-        .unwrap_or_else(|_| "8".to_string())
-        .parse()
-        .expect("Cannot parse DEGREE env var as usize")
-}
+// fn get_degree() -> usize {
+//     var("DEGREE")
+//         .unwrap_or_else(|_| "8".to_string())
+//         .parse()
+//         .expect("Cannot parse DEGREE env var as usize")
+// }
 
 #[derive(Clone, Debug, PartialEq)]
 struct ShaRow<F> {
@@ -154,7 +157,6 @@ struct ShaRow<F> {
     hash_rlc: F,
     is_paddings: [bool; ABSORB_WIDTH_PER_ROW_BYTES],
     data_rlcs: [F; ABSORB_WIDTH_PER_ROW_BYTES],
-    final_hash_bytes: [F; NUM_BYTES_FINAL_HASH],
 }
 
 /// Configuration for [`Sha256BitChip`].
@@ -181,8 +183,6 @@ pub struct Sha256BitConfig<F> {
     h_e: Column<Fixed>,
     /// The columns for other circuits to lookup hash results
     pub hash_table: KeccakTable,
-    /// The columns for bytes of hash results
-    pub final_hash_bytes: [Column<Advice>; NUM_BYTES_FINAL_HASH],
     _marker: PhantomData<F>,
 }
 
@@ -225,24 +225,20 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a vector of the assigned cells for the hash results.
-    pub fn digest(
-        &self,
-        layouter: impl Layouter<F>,
-        inputs: &[Vec<u8>],
-    ) -> Result<Vec<Vec<AssignedCell<F, F>>>, Error> {
+    pub fn digest(&self, layouter: impl Layouter<F>, inputs: &[Vec<u8>]) -> Result<(), Error> {
         let witness = multi_sha256(inputs, Sha256BitChip::r());
         self.config.assign(layouter, &witness)
     }
 
-    /*/// Sets the witness using the data to be hashed
-    pub fn generate_witness(&mut self, inputs: &[Vec<u8>]) {
-        self.witness = multi_sha256(inputs, Sha256BitChip::r());
-    }
+    // /// Sets the witness using the data to be hashed
+    // pub fn generate_witness(&mut self, inputs: &[Vec<u8>]) {
+    //     self.witness = multi_sha256(inputs, Sha256BitChip::r());
+    // }
 
-    /// Sets the witness using the witness data directly
-    fn set_witness(&mut self, witness: &[ShaRow<F>]) {
-        self.witness = witness.to_vec();
-    }*/
+    // /// Sets the witness using the witness data directly
+    // fn set_witness(&mut self, witness: &[ShaRow<F>]) {
+    //     self.witness = witness.to_vec();
+    // }
 }
 
 impl<F: Field> Sha256BitConfig<F> {
@@ -273,10 +269,10 @@ impl<F: Field> Sha256BitConfig<F> {
         let length = hash_table.input_len;
         let data_rlc = hash_table.input_rlc;
         let hash_rlc = hash_table.output_rlc;
-        let final_hash_bytes = array_init::array_init(|_| meta.advice_column());
-        for col in final_hash_bytes.into_iter() {
-            meta.enable_equality(col);
-        }
+        // let final_hash_bytes = array_init::array_init(|_| meta.advice_column());
+        // for col in final_hash_bytes.into_iter() {
+        //     meta.enable_equality(col);
+        // }
         // State bits
         let mut w_ext = vec![0u64.expr(); NUM_BITS_PER_WORD_W];
         let mut w_2 = vec![0u64.expr(); NUM_BITS_PER_WORD];
@@ -705,37 +701,37 @@ impl<F: Field> Sha256BitConfig<F> {
             cb.gate(meta.query_fixed(q_squeeze, Rotation::cur()))
         });
 
-        meta.create_gate("final_hash_words", |meta| {
-            let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
-            let q_condition = meta.query_fixed(q_final_word, Rotation::cur());
+        // meta.create_gate("final_hash_words", |meta| {
+        //     let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
+        //     let q_condition = meta.query_fixed(q_final_word, Rotation::cur());
 
-            let final_word_exprs = (0..NUM_BYTES_FINAL_HASH)
-                .map(|i| {
-                    meta.query_advice(final_hash_bytes[i], Rotation::cur())
-                        .expr()
-                    /*if i < NUM_BYTES_FINAL_HASH / 2 {
-                        meta.query_advice(final_hash_bytes[i], Rotation::cur())
-                            .expr()
-                    } else {
-                        meta.query_advice(
-                            final_hash_bytes[i - (NUM_BYTES_FINAL_HASH / 2)],
-                            Rotation::next(),
-                        )
-                        .expr()
-                    }*/
-                })
-                .collect::<Vec<Expression<F>>>();
-            let rlc = compose_rlc::expr(&final_word_exprs, r);
-            cb.condition(q_condition.clone(), |cb| {
-                cb.require_equal(
-                    "final hash rlc check",
-                    rlc,
-                    meta.query_advice(hash_rlc, Rotation::cur()),
-                );
-            });
-            //cb.gate(1.expr())
-            cb.gate(q_condition)
-        });
+        //     let final_word_exprs = (0..NUM_BYTES_FINAL_HASH)
+        //         .map(|i| {
+        //             meta.query_advice(final_hash_bytes[i], Rotation::cur())
+        //                 .expr()
+        //             if i < NUM_BYTES_FINAL_HASH / 2 {
+        //                 meta.query_advice(final_hash_bytes[i], Rotation::cur())
+        //                     .expr()
+        //             } else {
+        //                 meta.query_advice(
+        //                     final_hash_bytes[i - (NUM_BYTES_FINAL_HASH / 2)],
+        //                     Rotation::next(),
+        //                 )
+        //                 .expr()
+        //             }
+        //         })
+        //         .collect::<Vec<Expression<F>>>();
+        //     let rlc = compose_rlc::expr(&final_word_exprs, r);
+        //     cb.condition(q_condition.clone(), |cb| {
+        //         cb.require_equal(
+        //             "final hash rlc check",
+        //             rlc,
+        //             meta.query_advice(hash_rlc, Rotation::cur()),
+        //         );
+        //     });
+        //     //cb.gate(1.expr())
+        //     cb.gate(q_condition)
+        // });
 
         info!("degree: {}", meta.degree());
 
@@ -760,29 +756,28 @@ impl<F: Field> Sha256BitConfig<F> {
             round_cst,
             h_a,
             h_e,
-            final_hash_bytes,
             _marker: PhantomData,
         }
     }
 
-    fn assign(
-        &self,
-        mut layouter: impl Layouter<F>,
-        witness: &[ShaRow<F>],
-    ) -> Result<Vec<Vec<AssignedCell<F, F>>>, Error> {
+    fn assign(&self, mut layouter: impl Layouter<F>, witness: &[ShaRow<F>]) -> Result<(), Error> {
         layouter.assign_region(
             || "assign sha256 data",
             |mut region| {
-                let vec_vecs = witness
-                    .iter()
-                    .enumerate()
-                    .map(|(offset, sha256_row)| self.set_row(&mut region, offset, sha256_row))
-                    .collect::<Result<Vec<Vec<AssignedCell<F, F>>>, Error>>()?;
-                let filtered = vec_vecs
-                    .into_iter()
-                    .filter(|vec| vec.len() > 0)
-                    .collect::<Vec<Vec<AssignedCell<F, F>>>>();
-                Ok(filtered)
+                // witness
+                //     .iter()
+                //     .enumerate()
+                //     .map(|(offset, sha256_row)| self.set_row(&mut region, offset,
+                // sha256_row))     .collect::<Result<Vec<Vec<AssignedCell<F,
+                // F>>>, Error>>()?;
+                for (offset, sha256_row) in witness.iter().enumerate() {
+                    self.set_row(&mut region, offset, sha256_row)?;
+                }
+                // let filtered = vec_vecs
+                //     .into_iter()
+                //     .filter(|vec| vec.len() > 0)
+                //     .collect::<Vec<Vec<AssignedCell<F, F>>>>();
+                Ok(())
             },
         )
     }
@@ -792,7 +787,7 @@ impl<F: Field> Sha256BitConfig<F> {
         region: &mut Region<'_, F>,
         offset: usize,
         row: &ShaRow<F>,
-    ) -> Result<Vec<AssignedCell<F, F>>, Error> {
+    ) -> Result<(), Error> {
         let round = offset % (NUM_ROUNDS + 8);
         // Fixed values
         for (name, column, value) in &[
@@ -903,7 +898,7 @@ impl<F: Field> Sha256BitConfig<F> {
             ],
         )?;
 
-        let mut hash_cells = Vec::with_capacity(NUM_BYTES_FINAL_HASH);
+        /*let mut hash_cells = Vec::with_capacity(NUM_BYTES_FINAL_HASH);
         if !row.is_final || round != NUM_ROUNDS + 7 {
             for idx in 0..(NUM_BYTES_FINAL_HASH) {
                 region.assign_advice(
@@ -924,8 +919,8 @@ impl<F: Field> Sha256BitConfig<F> {
                 )?;
                 hash_cells.push(cell);
             }
-        }
-        Ok(hash_cells)
+        }*/
+        Ok(())
     }
 }
 
@@ -967,8 +962,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                            data_rlc,
                            hash_rlc,
                            is_paddings,
-                           data_rlcs,
-                           final_hash_bytes| {
+                           data_rlcs| {
             let word_to_bits = |value: u64, num_bits: usize| {
                 into_bits(&value.to_be_bytes())[64 - num_bits..64]
                     .iter()
@@ -986,7 +980,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 hash_rlc,
                 is_paddings,
                 data_rlcs,
-                final_hash_bytes,
             });
         };
 
@@ -1009,7 +1002,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 F::zero(),
                 [false, false, false, in_padding],
                 [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
-                [F::zero(); NUM_BYTES_FINAL_HASH],
             )
         };
         add_row_start(d, h, idx == 0);
@@ -1099,7 +1091,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 F::zero(),
                 is_paddings,
                 data_rlcs,
-                [F::zero(); NUM_BYTES_FINAL_HASH],
             );
 
             // Truncate the newly calculated values
@@ -1129,17 +1120,17 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
             F::zero()
         };
 
-        let final_hash_bytes = if is_final_block {
-            let mut bytes = [F::zero(); NUM_BYTES_FINAL_HASH];
-            for (i, h) in hs.iter().enumerate() {
-                for (j, byte) in (*h as u32).to_be_bytes().into_iter().enumerate() {
-                    bytes[4 * i + j] = F::from(byte as u64);
-                }
-            }
-            bytes
-        } else {
-            [F::zero(); NUM_BYTES_FINAL_HASH]
-        };
+        // let final_hash_bytes = if is_final_block {
+        //     let mut bytes = [F::zero(); NUM_BYTES_FINAL_HASH];
+        //     for (i, h) in hs.iter().enumerate() {
+        //         for (j, byte) in (*h as u32).to_be_bytes().into_iter().enumerate() {
+        //             bytes[4 * i + j] = F::from(byte as u64);
+        //         }
+        //     }
+        //     bytes
+        // } else {
+        //     [F::zero(); NUM_BYTES_FINAL_HASH]
+        // };
 
         // Add end rows
         let mut add_row_end = |a: u64, e: u64| {
@@ -1153,7 +1144,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 F::zero(),
                 [false; ABSORB_WIDTH_PER_ROW_BYTES],
                 [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
-                [F::zero(); NUM_BYTES_FINAL_HASH],
             )
         };
         add_row_end(hs[3], hs[7]);
@@ -1169,7 +1159,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
             hash_rlc,
             [false, false, false, in_padding],
             [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
-            final_hash_bytes,
         );
 
         // Now truncate the results
@@ -1225,8 +1214,8 @@ mod tests {
             config: Self::Config,
             layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            let sha256chip = Sha256BitChip::new(config.clone());
-            let cells_vec = sha256chip.digest(layouter, &self.inputs)?;
+            let mut sha256chip = Sha256BitChip::new(config.clone());
+            sha256chip.digest(layouter, &self.inputs)?;
             Ok(())
         }
     }
