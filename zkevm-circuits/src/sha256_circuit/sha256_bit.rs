@@ -1,12 +1,12 @@
 use crate::sha256_circuit::util::*;
 use crate::{
     evm_circuit::util::{constraint_builder::BaseConstraintBuilder, not, rlc},
-    keccak_circuit::util::compose_rlc,
     table::KeccakTable,
     util::Expr,
 };
 use eth_types::Field;
 use gadgets::util::{and, select, sum, xor};
+use halo2_proofs::plonk::Instance;
 use halo2_proofs::{
     circuit::{AssignedCell, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells},
@@ -183,6 +183,9 @@ pub struct Sha256BitConfig<F> {
     h_e: Column<Fixed>,
     /// The columns for other circuits to lookup hash results
     pub hash_table: KeccakTable,
+    /// The column for the randomness used to compute random linear
+    /// combinations.
+    pub randomness: Column<Instance>,
     _marker: PhantomData<F>,
 }
 
@@ -190,13 +193,15 @@ pub struct Sha256BitConfig<F> {
 #[derive(Clone, Debug)]
 pub struct Sha256BitChip<F: Field> {
     config: Sha256BitConfig<F>,
+    max_input_len: usize,
+    max_input_num: usize,
 }
 
-impl<F: Field> Sha256BitChip<F> {
-    fn r() -> F {
-        F::from(123456)
-    }
-}
+// impl<F: Field> Sha256BitChip<F> {
+//     fn r() -> F {
+//         F::from(123456)
+//     }
+// }
 
 impl<F: Field> Sha256BitChip<F> {
     /// Create a new [`Sha256BitChip`] from the configuration.
@@ -206,8 +211,13 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a new [`Sha256BitChip`]
-    pub fn new(config: Sha256BitConfig<F>) -> Self {
-        Sha256BitChip { config }
+    pub fn new(config: Sha256BitConfig<F>, max_input_len: usize, max_input_num: usize) -> Self {
+        assert_eq!(max_input_len % 64, 0);
+        Sha256BitChip {
+            config,
+            max_input_len,
+            max_input_num,
+        }
     }
 
     /*/// The number of sha256 permutations that can be done in this circuit
@@ -225,9 +235,29 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a vector of the assigned cells for the hash results.
-    pub fn digest(&self, layouter: impl Layouter<F>, inputs: &[Vec<u8>]) -> Result<(), Error> {
-        let witness = multi_sha256(inputs, Sha256BitChip::r());
+    pub fn digest(
+        &self,
+        layouter: impl Layouter<F>,
+        inputs: &[Vec<u8>],
+        r: F,
+    ) -> Result<(), Error> {
+        assert!(inputs.len() <= self.max_input_num);
+        for input in inputs.iter() {
+            assert!(input.len() <= self.max_input_len);
+        }
+        let witness = multi_sha256(inputs, r);
         self.config.assign(layouter, &witness)
+    }
+
+    /// Generate public input for the randomness column.
+    pub fn generate_public_input(r: F, max_input_len: usize, max_input_num: usize) -> Vec<F> {
+        let vec_size = Self::num_rows_randomness(max_input_len, max_input_num);
+        vec![r; vec_size]
+    }
+
+    /// The row size of the randomness column.
+    pub fn num_rows_randomness(max_input_len: usize, max_input_num: usize) -> usize {
+        72 * (max_input_len / 64 + 1) * max_input_num
     }
 
     // /// Sets the witness using the data to be hashed
@@ -244,7 +274,7 @@ impl<F: Field> Sha256BitChip<F> {
 impl<F: Field> Sha256BitConfig<F> {
     /// Configure constraints for [`Sha256BitChip`]
     pub fn configure(meta: &mut ConstraintSystem<F>) -> Self {
-        let r = Sha256BitChip::r();
+        //let r = Sha256BitChip::r();
         let q_enable = meta.fixed_column();
         let q_first = meta.fixed_column();
         let q_extend = meta.fixed_column();
@@ -265,6 +295,7 @@ impl<F: Field> Sha256BitConfig<F> {
         let h_a = meta.fixed_column();
         let h_e = meta.fixed_column();
         let hash_table = KeccakTable::construct(meta);
+        let randomness = meta.instance_column();
         let is_enabled = hash_table.is_enabled;
         let length = hash_table.input_len;
         let data_rlc = hash_table.input_rlc;
@@ -612,6 +643,7 @@ impl<F: Field> Sha256BitConfig<F> {
                 for (idx, (byte, is_padding)) in
                     input_bytes.iter().zip(is_paddings.iter()).enumerate()
                 {
+                    let r = meta.query_instance(randomness, Rotation::cur());
                     new_data_rlc = select::expr(
                         meta.query_advice(*is_padding, Rotation::cur()),
                         new_data_rlc.clone(),
@@ -690,6 +722,7 @@ impl<F: Field> Sha256BitConfig<F> {
                 .iter()
                 .flat_map(|part| to_le_bytes::expr(part))
                 .collect::<Vec<_>>();
+            let r = meta.query_instance(randomness, Rotation::cur());
             let rlc = compose_rlc::expr(&hash_bytes, r);
             cb.condition(start_new_hash(meta), |cb| {
                 cb.require_equal(
@@ -756,6 +789,7 @@ impl<F: Field> Sha256BitConfig<F> {
             round_cst,
             h_a,
             h_e,
+            randomness,
             _marker: PhantomData,
         }
     }
@@ -1173,8 +1207,8 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
         .collect::<Vec<_>>();
     debug!("hash: {:x?}", &hash_bytes);
     debug!("data rlc: {:x?}", data_rlc);
-    //println!("hash: {:x?}", &hash_bytes);
-    //println!("data rlc: {:x?}", data_rlc);
+    println!("hash: {:x?}", &hash_bytes);
+    println!("data rlc: {:x?}", data_rlc);
 }
 
 fn multi_sha256<F: Field>(bytes: &[Vec<u8>], r: F) -> Vec<ShaRow<F>> {
@@ -1192,8 +1226,10 @@ mod tests {
 
     #[derive(Default, Debug, Clone)]
     struct TestSha256<F: Field> {
-        k: u32,
         inputs: Vec<Vec<u8>>,
+        max_input_len: usize,
+        max_input_num: usize,
+        r: F,
         _f: PhantomData<F>,
     }
 
@@ -1214,20 +1250,34 @@ mod tests {
             config: Self::Config,
             layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            let mut sha256chip = Sha256BitChip::new(config.clone());
-            sha256chip.digest(layouter, &self.inputs)?;
+            let mut sha256chip =
+                Sha256BitChip::new(config.clone(), self.max_input_len, self.max_input_num);
+            sha256chip.digest(layouter, &self.inputs, self.r)?;
+
             Ok(())
         }
     }
 
-    fn verify<F: Field>(k: u32, inputs: Vec<Vec<u8>>, success: bool) {
+    use rand::{thread_rng, Rng};
+    fn verify<F: Field>(
+        k: u32,
+        inputs: Vec<Vec<u8>>,
+        max_input_len: usize,
+        max_input_num: usize,
+        success: bool,
+    ) {
+        let rng = thread_rng();
+        let r = F::random(rng);
         let circuit = TestSha256 {
-            k: 10,
             inputs,
+            max_input_len,
+            max_input_num,
+            r,
             _f: PhantomData,
         };
+        let randomnesses = Sha256BitChip::generate_public_input(r, max_input_len, max_input_num);
 
-        let prover = MockProver::<F>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![randomnesses]).unwrap();
         let verify_result = prover.verify();
         if verify_result.is_ok() != success {
             if let Some(errors) = verify_result.err() {
@@ -1240,16 +1290,21 @@ mod tests {
     }
 
     #[test]
-    fn bit_sha256_simple() {
+    fn bit_sha256_simple1() {
         let k = 10;
         let inputs = vec![
             vec![],
             (0u8..1).collect::<Vec<_>>(),
             (0u8..54).collect::<Vec<_>>(),
             (0u8..55).collect::<Vec<_>>(),
-            (0u8..56).collect::<Vec<_>>(),
-            (0u8..200).collect::<Vec<_>>(),
         ];
-        verify::<Fr>(k, inputs, true);
+        verify::<Fr>(k, inputs, 64, 4, true);
+    }
+
+    #[test]
+    fn bit_sha256_simple2() {
+        let k = 12;
+        let inputs = vec![vec![0u8; 512], vec![1u8; 1024]];
+        verify::<Fr>(k, inputs, 1024, 2, true);
     }
 }
