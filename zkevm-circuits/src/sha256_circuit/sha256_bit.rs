@@ -152,6 +152,7 @@ struct ShaRow<F> {
     a: [bool; NUM_BITS_PER_WORD_EXT],
     e: [bool; NUM_BITS_PER_WORD_EXT],
     is_final: bool,
+    is_dummy: bool,
     length: usize,
     data_rlc: F,
     hash_rlc: F,
@@ -171,12 +172,12 @@ pub struct Sha256BitConfig<F> {
     q_padding: Column<Fixed>,
     q_padding_last: Column<Fixed>,
     q_squeeze: Column<Fixed>,
-    q_final_word: Column<Fixed>,
     word_w: [Column<Advice>; NUM_BITS_PER_WORD_W],
     word_a: [Column<Advice>; NUM_BITS_PER_WORD_EXT],
     word_e: [Column<Advice>; NUM_BITS_PER_WORD_EXT],
     is_final: Column<Advice>,
     is_paddings: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
+    is_dummy: Column<Advice>,
     data_rlcs: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
     round_cst: Column<Fixed>,
     h_a: Column<Fixed>,
@@ -194,7 +195,6 @@ pub struct Sha256BitConfig<F> {
 pub struct Sha256BitChip<F: Field> {
     config: Sha256BitConfig<F>,
     max_input_len: usize,
-    max_input_num: usize,
 }
 
 // impl<F: Field> Sha256BitChip<F> {
@@ -211,12 +211,11 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a new [`Sha256BitChip`]
-    pub fn new(config: Sha256BitConfig<F>, max_input_len: usize, max_input_num: usize) -> Self {
+    pub fn new(config: Sha256BitConfig<F>, max_input_len: usize) -> Self {
         assert_eq!(max_input_len % 64, 0);
         Sha256BitChip {
             config,
             max_input_len,
-            max_input_num,
         }
     }
 
@@ -238,14 +237,11 @@ impl<F: Field> Sha256BitChip<F> {
     pub fn digest(
         &self,
         layouter: impl Layouter<F>,
-        inputs: &[Vec<u8>],
+        input: &[u8],
         r: F,
     ) -> Result<AssignedCell<F, F>, Error> {
-        assert!(inputs.len() <= self.max_input_num);
-        for input in inputs.iter() {
-            assert!(input.len() <= self.max_input_len);
-        }
-        let witness = multi_sha256(inputs, r.clone());
+        assert!(input.len() <= self.max_input_len);
+        let witness = sha256(input, r.clone(), self.max_input_len);
         self.config.assign(layouter, &witness, r)
     }
 }
@@ -263,12 +259,12 @@ impl<F: Field> Sha256BitConfig<F> {
         let q_padding = meta.fixed_column();
         let q_padding_last = meta.fixed_column();
         let q_squeeze = meta.fixed_column();
-        let q_final_word = meta.fixed_column();
         let word_w = array_init::array_init(|_| meta.advice_column());
         let word_a = array_init::array_init(|_| meta.advice_column());
         let word_e = array_init::array_init(|_| meta.advice_column());
         let is_final = meta.advice_column();
         let is_paddings = array_init::array_init(|_| meta.advice_column());
+        let is_dummy = meta.advice_column();
         let data_rlcs = array_init::array_init(|_| meta.advice_column());
         let round_cst = meta.fixed_column();
         let h_a = meta.fixed_column();
@@ -471,17 +467,26 @@ impl<F: Field> Sha256BitConfig<F> {
                 );
             });
             // Get the correct is_final state from the padding selector
-            cb.condition(meta.query_fixed(q_squeeze, Rotation::cur()), |cb| {
-                cb.require_equal(
-                    "is_final needs to match the padding selector",
-                    is_final.expr(),
-                    is_padding,
-                );
-            });
+            cb.condition(
+                and::expr(&[
+                    meta.query_fixed(q_squeeze, Rotation::cur()),
+                    not::expr(meta.query_advice(is_dummy, Rotation::cur())),
+                ]),
+                |cb| {
+                    cb.require_equal(
+                        "is_final needs to match the padding selector",
+                        is_final.expr(),
+                        is_padding,
+                    );
+                },
+            );
             // Copy the is_final state to the q_start rows
             cb.condition(
-                meta.query_fixed(q_start, Rotation::cur())
-                    - meta.query_fixed(q_first, Rotation::cur()),
+                and::expr(&[
+                    meta.query_fixed(q_start, Rotation::cur())
+                        - meta.query_fixed(q_first, Rotation::cur()),
+                    1.expr() - is_final_prev.expr(),
+                ]),
                 |cb| {
                     cb.require_equal(
                         "is_final needs to remain the same",
@@ -581,7 +586,11 @@ impl<F: Field> Sha256BitConfig<F> {
             // contain the length in bits (Only input lengths up to 2**32 - 1
             // bits are supported, which is lower than the spec of 2**64 - 1 bits)
             cb.condition(
-                and::expr([q_padding_last.expr(), is_final_padding_row.expr()]),
+                and::expr([
+                    q_padding_last.expr(),
+                    is_final_padding_row.expr(),
+                    not::expr(meta.query_advice(is_dummy, Rotation::cur())),
+                ]),
                 |cb| {
                     cb.require_equal("padding length", decode::expr(w), length.expr() * 8.expr());
                 },
@@ -715,10 +724,30 @@ impl<F: Field> Sha256BitConfig<F> {
         });
 
         meta.create_gate("randomness", |meta| {
+            let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
             let is_enabled = meta.query_fixed(q_enable, Rotation::cur());
-            let cur_r = meta.query_advice(randomness, Rotation::cur());
-            let next_r = meta.query_advice(randomness, Rotation::next());
-            vec![is_enabled * (next_r - cur_r)]
+            let is_first = meta.query_fixed(q_first, Rotation::cur());
+            let r_prev = meta.query_advice(randomness, Rotation::prev());
+            let r_cur = meta.query_advice(randomness, Rotation::cur());
+            cb.condition(and::expr(&[is_enabled, not::expr(is_first)]), |cb| {
+                cb.require_equal("current randomness == previous randomness", r_prev, r_cur);
+            });
+            cb.gate(1.expr())
+        });
+
+        meta.create_gate("is_dummy check", |meta| {
+            let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
+            let is_dummy_change = meta.query_advice(is_dummy, Rotation::cur())
+                - meta.query_advice(is_dummy, Rotation::prev());
+            let is_final_prev = meta.query_advice(is_final, Rotation::prev());
+            cb.require_boolean("is_dummy_change should be boolean", is_dummy_change.expr());
+            cb.condition(is_dummy_change.expr(), |cb| {
+                cb.require_equal("is_final_prev==1", is_final_prev, 1.expr());
+            });
+            cb.gate(and::expr(&[
+                not::expr(meta.query_fixed(q_first, Rotation::cur())),
+                meta.query_fixed(q_enable, Rotation::cur()),
+            ]))
         });
 
         info!("degree: {}", meta.degree());
@@ -733,13 +762,13 @@ impl<F: Field> Sha256BitConfig<F> {
             q_padding,
             q_padding_last,
             q_squeeze,
-            q_final_word,
             hash_table,
             word_w,
             word_a,
             word_e,
             is_final,
             is_paddings,
+            is_dummy,
             data_rlcs,
             round_cst,
             h_a,
@@ -759,12 +788,6 @@ impl<F: Field> Sha256BitConfig<F> {
         layouter.assign_region(
             || "assign sha256 data",
             |mut region| {
-                // witness
-                //     .iter()
-                //     .enumerate()
-                //     .map(|(offset, sha256_row)| self.set_row(&mut region, offset,
-                // sha256_row))     .collect::<Result<Vec<Vec<AssignedCell<F,
-                // F>>>, Error>>()?;
                 for (offset, sha256_row) in witness.iter().enumerate() {
                     self.set_row(&mut region, offset, sha256_row)?;
                 }
@@ -774,7 +797,7 @@ impl<F: Field> Sha256BitConfig<F> {
                     0,
                     || Value::known(r),
                 )?;
-                for offset in 1..(size + 1) {
+                for offset in 1..size {
                     region.assign_advice(
                         || format!("randomness {}", offset),
                         self.randomness,
@@ -822,11 +845,6 @@ impl<F: Field> Sha256BitConfig<F> {
                 F::from(round == NUM_ROUNDS + 7),
             ),
             (
-                "q_final_word",
-                self.q_final_word,
-                F::from(row.is_final && round == NUM_ROUNDS + 7),
-            ),
-            (
                 "round_cst",
                 self.round_cst,
                 F::from(if (4..NUM_ROUNDS + 4).contains(&round) {
@@ -868,6 +886,11 @@ impl<F: Field> Sha256BitConfig<F> {
                 "is_final",
                 [self.is_final].as_slice(),
                 [row.is_final].as_slice(),
+            ),
+            (
+                "is_dummy",
+                [self.is_dummy].as_slice(),
+                [row.is_dummy].as_slice(),
             ),
         ] {
             for (idx, (value, column)) in values.iter().zip(columns.iter()).enumerate() {
@@ -929,9 +952,9 @@ impl<F: Field> Sha256BitConfig<F> {
     }
 }
 
-fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
+fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> {
     let mut bits = into_bits(bytes);
-
+    let mut rows = Vec::<ShaRow<F>>::new();
     // Padding
     let length = bits.len();
     let mut length_in_bits = into_bits(&(length as u64).to_be_bytes());
@@ -942,6 +965,9 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
     }
     bits.append(&mut length_in_bits);
     assert!(bits.len() % RATE_IN_BITS == 0);
+    let target_round = bits.len() / RATE_IN_BITS - 1;
+    let mut dummy_inputs = vec![0u8; 8 * max_input_len - bits.len()];
+    bits.append(&mut dummy_inputs);
 
     // Set the initial state
     let mut hs: [u64; 8] = H
@@ -963,6 +989,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                            a: u64,
                            e: u64,
                            is_final,
+                           is_dummy,
                            length,
                            data_rlc,
                            hash_rlc,
@@ -980,6 +1007,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 a: word_to_bits(a, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
                 e: word_to_bits(e, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
                 is_final,
+                is_dummy,
                 length,
                 data_rlc,
                 hash_rlc,
@@ -989,7 +1017,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
         };
 
         // Last block for this hash
-        let is_final_block = idx == num_chunks - 1;
+        let is_final_block = idx == target_round; //num_chunks - 1;
 
         // Set the state
         let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h) =
@@ -1002,6 +1030,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 a,
                 e,
                 is_final,
+                idx > target_round,
                 length,
                 data_rlc,
                 F::zero(),
@@ -1083,6 +1112,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 a,
                 e,
                 false,
+                idx > target_round,
                 if round < NUM_WORDS_TO_ABSORB {
                     length
                 } else {
@@ -1125,18 +1155,6 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
             F::zero()
         };
 
-        // let final_hash_bytes = if is_final_block {
-        //     let mut bytes = [F::zero(); NUM_BYTES_FINAL_HASH];
-        //     for (i, h) in hs.iter().enumerate() {
-        //         for (j, byte) in (*h as u32).to_be_bytes().into_iter().enumerate() {
-        //             bytes[4 * i + j] = F::from(byte as u64);
-        //         }
-        //     }
-        //     bytes
-        // } else {
-        //     [F::zero(); NUM_BYTES_FINAL_HASH]
-        // };
-
         // Add end rows
         let mut add_row_end = |a: u64, e: u64| {
             add_row(
@@ -1144,6 +1162,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
                 a,
                 e,
                 false,
+                idx > target_round,
                 0,
                 F::zero(),
                 F::zero(),
@@ -1159,6 +1178,7 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
             hs[0],
             hs[4],
             is_final_block,
+            idx > target_round,
             length,
             data_rlc,
             hash_rlc,
@@ -1180,15 +1200,16 @@ fn sha256<F: Field>(rows: &mut Vec<ShaRow<F>>, bytes: &[u8], r: F) {
     debug!("data rlc: {:x?}", data_rlc);
     println!("hash: {:x?}", &hash_bytes);
     println!("data rlc: {:x?}", data_rlc);
-}
-
-fn multi_sha256<F: Field>(bytes: &[Vec<u8>], r: F) -> Vec<ShaRow<F>> {
-    let mut rows: Vec<ShaRow<F>> = Vec::new();
-    for bytes in bytes {
-        sha256(&mut rows, bytes, r);
-    }
     rows
 }
+
+// fn multi_sha256<F: Field>(bytes: &[Vec<u8>], r: F) -> Vec<ShaRow<F>> {
+//     let mut rows: Vec<ShaRow<F>> = Vec::new();
+//     for bytes in bytes {
+//         sha256(&mut rows, bytes, r);
+//     }
+//     rows
+// }
 
 #[cfg(test)]
 mod tests {
@@ -1203,9 +1224,8 @@ mod tests {
 
     #[derive(Default, Debug, Clone)]
     struct TestSha256<F: Field> {
-        inputs: Vec<Vec<u8>>,
+        input: Vec<u8>,
         max_input_len: usize,
-        max_input_num: usize,
         r: F,
         _f: PhantomData<F>,
     }
@@ -1233,32 +1253,21 @@ mod tests {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            let sha256chip = Sha256BitChip::new(
-                config.sha256_config.clone(),
-                self.max_input_len,
-                self.max_input_num,
-            );
+            let sha256chip = Sha256BitChip::new(config.sha256_config.clone(), self.max_input_len);
             let first_r =
-                sha256chip.digest(layouter.namespace(|| "digest"), &self.inputs, self.r)?;
+                sha256chip.digest(layouter.namespace(|| "digest"), &self.input, self.r)?;
             layouter.constrain_instance(first_r.cell(), config.instance, 0)?;
             Ok(())
         }
     }
 
     use rand::{thread_rng, Rng};
-    fn verify<F: Field>(
-        k: u32,
-        inputs: Vec<Vec<u8>>,
-        max_input_len: usize,
-        max_input_num: usize,
-        success: bool,
-    ) {
+    fn verify<F: Field>(k: u32, input: Vec<u8>, max_input_len: usize, success: bool) {
         let rng = thread_rng();
         let r = F::random(rng);
         let circuit = TestSha256 {
-            inputs,
+            input,
             max_input_len,
-            max_input_num,
             r,
             _f: PhantomData,
         };
@@ -1278,19 +1287,14 @@ mod tests {
     #[test]
     fn bit_sha256_simple1() {
         let k = 10;
-        let inputs = vec![
-            vec![],
-            (0u8..1).collect::<Vec<_>>(),
-            (0u8..54).collect::<Vec<_>>(),
-            (0u8..55).collect::<Vec<_>>(),
-        ];
-        verify::<Fr>(k, inputs, 64, 4, true);
+        let inputs = (0u8..55).collect::<Vec<_>>();
+        verify::<Fr>(k, inputs, 128, true);
     }
 
     #[test]
     fn bit_sha256_simple2() {
         let k = 12;
-        let inputs = vec![vec![0u8; 512], vec![1u8; 1024]];
-        verify::<Fr>(k, inputs, 1024, 2, true);
+        let inputs = vec![1u8; 1000];
+        verify::<Fr>(k, inputs, 1024, true);
     }
 }
