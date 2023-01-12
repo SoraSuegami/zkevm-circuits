@@ -961,7 +961,6 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
     bits.append(&mut length_in_bits);
     assert!(bits.len() % RATE_IN_BITS == 0);
     let target_round = bits.len() / RATE_IN_BITS - 1;
-    println!("bits {:?}", bits);
     let mut dummy_inputs = vec![0u8; 8 * max_input_len - bits.len()];
     bits.append(&mut dummy_inputs);
 
@@ -1145,8 +1144,6 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
                 .collect::<Vec<_>>();
             debug!("hash: {:x?}", &hash_bytes);
             debug!("data rlc: {:x?}", data_rlc);
-            println!("hash: {:x?}", &hash_bytes);
-            println!("data rlc: {:x?}", data_rlc);
         }
 
         // Squeeze
