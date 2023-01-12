@@ -236,13 +236,13 @@ impl<F: Field> Sha256BitChip<F> {
     /// Returns a vector of the assigned cells for the hash results.
     pub fn digest(
         &self,
-        layouter: impl Layouter<F>,
+        region: &mut Region<'_, F>,
         input: &[u8],
         r: F,
     ) -> Result<AssignedCell<F, F>, Error> {
         assert!(input.len() <= self.max_input_len);
         let witness = sha256(input, r.clone(), self.max_input_len);
-        self.config.assign(layouter, &witness, r)
+        self.config.assign(region, &witness, r)
     }
 }
 
@@ -780,34 +780,29 @@ impl<F: Field> Sha256BitConfig<F> {
 
     fn assign(
         &self,
-        mut layouter: impl Layouter<F>,
+        region: &mut Region<'_, F>,
         witness: &[ShaRow<F>],
         r: F,
     ) -> Result<AssignedCell<F, F>, Error> {
         let size = witness.len();
-        layouter.assign_region(
-            || "assign sha256 data",
-            |mut region| {
-                for (offset, sha256_row) in witness.iter().enumerate() {
-                    self.set_row(&mut region, offset, sha256_row)?;
-                }
-                let first_r = region.assign_advice(
-                    || format!("randomness {}", 0),
-                    self.randomness,
-                    0,
-                    || Value::known(r),
-                )?;
-                for offset in 1..size {
-                    region.assign_advice(
-                        || format!("randomness {}", offset),
-                        self.randomness,
-                        offset,
-                        || Value::known(r),
-                    )?;
-                }
-                Ok(first_r)
-            },
-        )
+        for (offset, sha256_row) in witness.iter().enumerate() {
+            self.set_row(region, offset, sha256_row)?;
+        }
+        let first_r = region.assign_advice(
+            || format!("randomness {}", 0),
+            self.randomness,
+            0,
+            || Value::known(r),
+        )?;
+        for offset in 1..size {
+            region.assign_advice(
+                || format!("randomness {}", offset),
+                self.randomness,
+                offset,
+                || Value::known(r),
+            )?;
+        }
+        Ok(first_r)
     }
 
     fn set_row(
@@ -966,6 +961,7 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
     bits.append(&mut length_in_bits);
     assert!(bits.len() % RATE_IN_BITS == 0);
     let target_round = bits.len() / RATE_IN_BITS - 1;
+    println!("bits {:?}", bits);
     let mut dummy_inputs = vec![0u8; 8 * max_input_len - bits.len()];
     bits.append(&mut dummy_inputs);
 
@@ -982,7 +978,6 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
 
     // Process each block
     let chunks = bits.chunks(RATE_IN_BITS);
-    let num_chunks = chunks.len();
     for (idx, chunk) in chunks.enumerate() {
         // Adds a row
         let mut add_row = |w: u64,
@@ -1143,6 +1138,17 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
         hs[6] += g;
         hs[7] += h;
 
+        if (idx == target_round) {
+            let hash_bytes = hs
+                .iter()
+                .flat_map(|h| (*h as u32).to_be_bytes())
+                .collect::<Vec<_>>();
+            debug!("hash: {:x?}", &hash_bytes);
+            debug!("data rlc: {:x?}", data_rlc);
+            println!("hash: {:x?}", &hash_bytes);
+            println!("data rlc: {:x?}", data_rlc);
+        }
+
         // Squeeze
 
         let hash_rlc = if is_final_block {
@@ -1191,15 +1197,6 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
             *h &= 0xFFFFFFFF;
         }
     }
-
-    let hash_bytes = hs
-        .iter()
-        .flat_map(|h| (*h as u32).to_be_bytes())
-        .collect::<Vec<_>>();
-    debug!("hash: {:x?}", &hash_bytes);
-    debug!("data rlc: {:x?}", data_rlc);
-    println!("hash: {:x?}", &hash_bytes);
-    println!("data rlc: {:x?}", data_rlc);
     rows
 }
 
@@ -1254,8 +1251,10 @@ mod tests {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             let sha256chip = Sha256BitChip::new(config.sha256_config.clone(), self.max_input_len);
-            let first_r =
-                sha256chip.digest(layouter.namespace(|| "digest"), &self.input, self.r)?;
+            let first_r = layouter.assign_region(
+                || "digest",
+                |mut region| sha256chip.digest(&mut region, &self.input, self.r),
+            )?;
             layouter.constrain_instance(first_r.cell(), config.instance, 0)?;
             Ok(())
         }
