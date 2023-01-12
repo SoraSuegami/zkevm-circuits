@@ -709,11 +709,7 @@ impl<F: Field> Sha256BitConfig<F> {
             let hash_parts = [new_a, &a, &b, &c, new_e, &e, &f, &g];
             let hash_bytes = hash_parts
                 .iter()
-                .flat_map(|part| {
-                    let mut byte_exprs = to_le_bytes::expr(part);
-                    byte_exprs.reverse();
-                    byte_exprs
-                })
+                .flat_map(|part| to_le_bytes::expr(part))
                 .collect::<Vec<_>>();
             let r = meta.query_advice(randomness, Rotation::cur());
             let rlc = compose_rlc::expr(&hash_bytes, r);
@@ -1158,7 +1154,7 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
         let hash_rlc = if is_final_block {
             let hash_bytes = hs
                 .iter()
-                .flat_map(|h| (*h as u32).to_le_bytes())
+                .flat_map(|h| (*h as u32).to_be_bytes())
                 .collect::<Vec<_>>();
             rlc::value(&hash_bytes, r)
         } else {
