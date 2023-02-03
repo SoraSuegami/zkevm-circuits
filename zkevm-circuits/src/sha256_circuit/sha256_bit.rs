@@ -15,137 +15,6 @@ use halo2_proofs::{
 use log::{debug, info};
 use std::{env::var, marker::PhantomData, vec};
 
-// const NUM_BITS_PER_BYTE: usize = 8;
-// const NUM_BYTES_PER_WORD: usize = 4;
-// const NUM_BITS_PER_WORD: usize = NUM_BYTES_PER_WORD * NUM_BITS_PER_BYTE;
-// const NUM_BITS_PER_WORD_W: usize = NUM_BITS_PER_WORD + 2;
-// const NUM_BITS_PER_WORD_EXT: usize = NUM_BITS_PER_WORD + 3;
-// const NUM_ROUNDS: usize = 64;
-// const RATE: usize = 16 * NUM_BYTES_PER_WORD;
-// const RATE_IN_BITS: usize = RATE * NUM_BITS_PER_BYTE;
-// const NUM_WORDS_TO_ABSORB: usize = 16;
-// const ABSORB_WIDTH_PER_ROW_BYTES: usize = 4;
-// const NUM_BITS_PADDING_LENGTH: usize = 64;
-// const NUM_START_ROWS: usize = 4;
-// const NUM_END_ROWS: usize = 4;
-// const NUM_BYTES_FINAL_HASH: usize = 32;
-// const MAX_DEGREE: usize = 5;
-
-// const ROUND_CST: [u32; NUM_ROUNDS] = [
-//     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-// 0x923f82a4, 0xab1c5ed5,     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-// 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,     0xe49b69c1, 0xefbe4786,
-// 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-//     0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-// 0x06ca6351, 0x14292967,     0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-// 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,     0xa2bfe8a1, 0xa81a664b,
-// 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-//     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-// 0x5b9cca4f, 0x682e6ff3,     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-// 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2, ];
-
-// const H: [u32; 8] = [
-//     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
-// 0x1f83d9ab, 0x5be0cd19, ];
-
-// /// Decodes be bits
-// pub mod decode {
-//     use eth_types::Field;
-//     use gadgets::util::Expr;
-//     use halo2_proofs::plonk::Expression;
-
-//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) -> Expression<F> {
-//         let mut value = 0.expr();
-//         let mut multiplier = F::one();
-//         for bit in bits.iter().rev() {
-//             value = value + bit.expr() * multiplier;
-//             multiplier *= F::from(2);
-//         }
-//         value
-//     }
-
-//     pub(crate) fn value(bits: &[u8]) -> u64 {
-//         let mut value = 0u64;
-//         for (idx, &bit) in bits.iter().rev().enumerate() {
-//             value += (bit as u64) << idx;
-//         }
-//         value
-//     }
-// }
-
-// /// Rotates bits to the right
-// pub mod rotate {
-//     use eth_types::Field;
-//     use halo2_proofs::plonk::Expression;
-
-//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) ->
-// Vec<Expression<F>> {         let mut rotated = bits.to_vec();
-//         rotated.rotate_right(count);
-//         rotated
-//     }
-
-//     pub(crate) fn value(value: u64, count: u32) -> u64 {
-//         ((value as u32).rotate_right(count)) as u64
-//     }
-// }
-
-// /// Shifts bits to the right
-// pub mod shift {
-//     use super::NUM_BITS_PER_WORD;
-//     use eth_types::Field;
-//     use gadgets::util::Expr;
-//     use halo2_proofs::plonk::Expression;
-
-//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>], count: usize) ->
-// Vec<Expression<F>> {         let mut res = vec![0.expr(); count];
-//         res.extend_from_slice(&bits[0..NUM_BITS_PER_WORD - count]);
-//         res
-//     }
-
-//     pub(crate) fn value(value: u64, count: u32) -> u64 {
-//         ((value as u32) >> count) as u64
-//     }
-// }
-
-// /// Convert be bits to le bytes
-// pub mod to_le_bytes {
-//     use crate::keccak_circuit::util::to_bytes;
-//     use eth_types::Field;
-//     use halo2_proofs::plonk::Expression;
-
-//     pub(crate) fn expr<F: Field>(bits: &[Expression<F>]) ->
-// Vec<Expression<F>> {         to_bytes::expr(&bits.iter().rev().cloned().
-// collect::<Vec<_>>())             .into_iter()
-//             .rev()
-//             .collect::<Vec<_>>()
-//     }
-
-//     pub(crate) fn value(bits: &[u8]) -> Vec<u8> {
-//         to_bytes::value(&bits.iter().rev().copied().collect::<Vec<u8>>())
-//             .into_iter()
-//             .rev()
-//             .collect::<Vec<u8>>()
-//     }
-// }
-
-// /// Converts bytes into bits
-// fn into_bits(bytes: &[u8]) -> Vec<u8> {
-//     let mut bits: Vec<u8> = vec![0; bytes.len() * 8];
-//     for (byte_idx, byte) in bytes.iter().enumerate() {
-//         for idx in 0u64..8 {
-//             bits[byte_idx * 8 + (idx as usize)] = (*byte >> (7 - idx)) & 1;
-//         }
-//     }
-//     bits
-// }
-
-// fn get_degree() -> usize {
-//     var("DEGREE")
-//         .unwrap_or_else(|_| "8".to_string())
-//         .parse()
-//         .expect("Cannot parse DEGREE env var as usize")
-// }
-
 #[derive(Clone, Debug, PartialEq)]
 struct ShaRow<F> {
     w: [bool; NUM_BITS_PER_WORD_W],
@@ -154,10 +23,11 @@ struct ShaRow<F> {
     is_final: bool,
     is_dummy: bool,
     length: usize,
-    data_rlc: F,
-    hash_rlc: F,
+    // data_rlc: F,
+    // hash_rlc: F,
     is_paddings: [bool; ABSORB_WIDTH_PER_ROW_BYTES],
-    data_rlcs: [F; ABSORB_WIDTH_PER_ROW_BYTES],
+    // data_rlcs: [F; ABSORB_WIDTH_PER_ROW_BYTES],
+    output_word: F,
 }
 
 /// Configuration for [`Sha256BitChip`].
@@ -178,15 +48,20 @@ pub struct Sha256BitConfig<F> {
     is_final: Column<Advice>,
     is_paddings: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
     is_dummy: Column<Advice>,
-    data_rlcs: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
+    // data_rlcs: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
     round_cst: Column<Fixed>,
     h_a: Column<Fixed>,
     h_e: Column<Fixed>,
     /// The columns for other circuits to lookup hash results
-    pub hash_table: KeccakTable,
+    // pub hash_table: KeccakTable,
+    pub is_output_enabled: Column<Advice>,
+    /// Byte array input length
+    pub input_len: Column<Advice>,
+    /// The hash words (8 bytes) result,
+    pub output_words: Column<Advice>,
     /// The column for the randomness used to compute random linear
     /// combinations.
-    pub randomness: Column<Advice>,
+    //pub randomness: Column<Advice>,
     _marker: PhantomData<F>,
 }
 
@@ -234,15 +109,10 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a vector of the assigned cells for the hash results.
-    pub fn digest(
-        &self,
-        region: &mut Region<'_, F>,
-        input: &[u8],
-        r: F,
-    ) -> Result<AssignedCell<F, F>, Error> {
+    pub fn digest(&self, region: &mut Region<'_, F>, input: &[u8]) -> Result<(), Error> {
         assert!(input.len() <= self.max_input_len);
-        let witness = sha256(input, r.clone(), self.max_input_len);
-        self.config.assign(region, &witness, r)
+        let witness = sha256(input, self.max_input_len);
+        self.config.assign(region, &witness)
     }
 }
 
@@ -265,17 +135,21 @@ impl<F: Field> Sha256BitConfig<F> {
         let is_final = meta.advice_column();
         let is_paddings = array_init::array_init(|_| meta.advice_column());
         let is_dummy = meta.advice_column();
-        let data_rlcs = array_init::array_init(|_| meta.advice_column());
+        // let data_rlcs = array_init::array_init(|_| meta.advice_column());
         let round_cst = meta.fixed_column();
         let h_a = meta.fixed_column();
         let h_e = meta.fixed_column();
-        let hash_table = KeccakTable::construct(meta);
-        let randomness = meta.advice_column();
-        meta.enable_equality(randomness);
-        let is_enabled = hash_table.is_enabled;
-        let length = hash_table.input_len;
-        let data_rlc = hash_table.input_rlc;
-        let hash_rlc = hash_table.output_rlc;
+        //let hash_table = KeccakTable::construct(meta);
+        // let randomness = meta.advice_column();
+        // meta.enable_equality(randomness);
+        let is_output_enabled = meta.advice_column();
+        meta.enable_equality(is_output_enabled);
+        let input_len = meta.advice_column();
+        meta.enable_equality(input_len);
+        let output_words = meta.advice_column();
+        meta.enable_equality(output_words);
+        // let data_rlc = hash_table.input_rlc;
+        // let hash_rlc = hash_table.output_rlc;
         // let final_hash_bytes = array_init::array_init(|_| meta.advice_column());
         // for col in final_hash_bytes.into_iter() {
         //     meta.enable_equality(col);
@@ -457,16 +331,14 @@ impl<F: Field> Sha256BitConfig<F> {
                 Rotation(-((NUM_END_ROWS + NUM_ROUNDS - NUM_WORDS_TO_ABSORB) as i32) - 2),
             );
             let is_final_prev = meta.query_advice(is_final, Rotation::prev());
-            let is_final = meta.query_advice(is_final, Rotation::cur());
-            // On the first row is_final needs to be enabled
+            let is_final = meta.query_advice(is_final, Rotation::cur()); // On the first row is_final needs to be enabled
             cb.condition(meta.query_fixed(q_first, Rotation::cur()), |cb| {
                 cb.require_equal(
                     "is_final needs to remain the same",
                     is_final.expr(),
                     1.expr(),
                 );
-            });
-            // Get the correct is_final state from the padding selector
+            }); // Get the correct is_final state from the padding selector
             cb.condition(
                 and::expr(&[
                     meta.query_fixed(q_squeeze, Rotation::cur()),
@@ -474,13 +346,13 @@ impl<F: Field> Sha256BitConfig<F> {
                 ]),
                 |cb| {
                     cb.require_equal(
-                        "is_final needs to match the padding selector",
+                        "is_final needs to match the padding
+          selector",
                         is_final.expr(),
                         is_padding,
                     );
                 },
-            );
-            // Copy the is_final state to the q_start rows
+            ); // Copy the is_final state to the q_start rows
             cb.condition(
                 and::expr(&[
                     meta.query_fixed(q_start, Rotation::cur())
@@ -502,7 +374,7 @@ impl<F: Field> Sha256BitConfig<F> {
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
             let q_squeeze = meta.query_fixed(q_squeeze, Rotation::cur());
             let is_final = meta.query_advice(is_final, Rotation::cur());
-            let is_enabled = meta.query_advice(is_enabled, Rotation::cur());
+            let is_enabled = meta.query_advice(is_output_enabled, Rotation::cur());
             // Only set is_enabled to true when is_final is true and it's a squeeze row
             cb.require_equal(
                 "is_enabled := q_squeeze && is_final",
@@ -526,7 +398,7 @@ impl<F: Field> Sha256BitConfig<F> {
             let prev_is_padding = meta.query_advice(*is_paddings.last().unwrap(), Rotation::prev());
             let q_padding = meta.query_fixed(q_padding, Rotation::cur());
             let q_padding_last = meta.query_fixed(q_padding_last, Rotation::cur());
-            let length = meta.query_advice(length, Rotation::cur());
+            let length = meta.query_advice(input_len, Rotation::cur());
             let is_final_padding_row =
                 meta.query_advice(*is_paddings.last().unwrap(), Rotation(-2));
             // All padding selectors need to be boolean
@@ -545,8 +417,7 @@ impl<F: Field> Sha256BitConfig<F> {
                     meta.query_advice(is_paddings[idx - 1], Rotation::cur())
                 };
                 let is_padding = meta.query_advice(is_paddings[idx], Rotation::cur());
-                let is_first_padding = is_padding.clone() - is_padding_prev.clone();
-                // Check padding transition 0 -> 1 done only once
+                let is_first_padding = is_padding.clone() - is_padding_prev.clone(); // Check padding transition 0 -> 1 done only once
                 cb.condition(q_padding.expr(), |cb| {
                     cb.require_boolean("padding step boolean", is_first_padding.clone());
                 });
@@ -598,15 +469,15 @@ impl<F: Field> Sha256BitConfig<F> {
             cb.gate(1.expr())
         });
 
-        // Length and input data rlc
-        meta.create_gate("length and data rlc", |meta| {
+        // Length
+        meta.create_gate("length", |meta| {
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
             let q_padding = meta.query_fixed(q_padding, Rotation::cur());
             let start_new_hash = start_new_hash(meta);
-            let length_prev = meta.query_advice(length, Rotation::prev());
-            let length = meta.query_advice(length, Rotation::cur());
-            let data_rlc_prev = meta.query_advice(data_rlc, Rotation::prev());
-            let data_rlc = meta.query_advice(data_rlc, Rotation::cur());
+            let length_prev = meta.query_advice(input_len, Rotation::prev());
+            let length = meta.query_advice(input_len, Rotation::cur());
+            //let data_rlc_prev = meta.query_advice(data_rlc, Rotation::prev());
+            //let data_rlc = meta.query_advice(data_rlc, Rotation::cur());
             // Update the length/data_rlc on rows where we absorb data
             cb.condition(q_padding.expr(), |cb| {
                 // Length increases by the number of bytes that aren't padding
@@ -622,33 +493,35 @@ impl<F: Field> Sha256BitConfig<F> {
                 );
 
                 // Use intermediate cells to keep the degree low
-                let mut new_data_rlc = data_rlc_prev.clone() * not::expr(start_new_hash.expr());
-                cb.require_equal(
-                    "initial data rlc",
-                    meta.query_advice(data_rlcs[0], Rotation::cur()),
-                    new_data_rlc,
-                );
-                new_data_rlc = meta.query_advice(data_rlcs[0], Rotation::cur());
-                for (idx, (byte, is_padding)) in
-                    input_bytes.iter().zip(is_paddings.iter()).enumerate()
-                {
-                    let r = meta.query_advice(randomness, Rotation::cur());
-                    new_data_rlc = select::expr(
-                        meta.query_advice(*is_padding, Rotation::cur()),
-                        new_data_rlc.clone(),
-                        new_data_rlc.clone() * r + byte.clone(),
-                    );
-                    if idx < data_rlcs.len() - 1 {
-                        let next_data_rlc = meta.query_advice(data_rlcs[idx + 1], Rotation::cur());
-                        cb.require_equal(
-                            "intermediate data rlc",
-                            next_data_rlc.clone(),
-                            new_data_rlc,
-                        );
-                        new_data_rlc = next_data_rlc;
-                    }
-                }
-                cb.require_equal("update data rlc", data_rlc.clone(), new_data_rlc);
+                // let mut new_data_rlc = data_rlc_prev.clone() *
+                // not::expr(start_new_hash.expr());
+                // cb.require_equal(
+                //     "initial data rlc",
+                //     meta.query_advice(data_rlcs[0], Rotation::cur()),
+                //     new_data_rlc,
+                // );
+                // new_data_rlc = meta.query_advice(data_rlcs[0],
+                // Rotation::cur()); for (idx, (byte,
+                // is_padding)) in     input_bytes.iter().
+                // zip(is_paddings.iter()).enumerate() {
+                //     let r = meta.query_advice(randomness, Rotation::cur());
+                //     new_data_rlc = select::expr(
+                //         meta.query_advice(*is_padding, Rotation::cur()),
+                //         new_data_rlc.clone(),
+                //         new_data_rlc.clone() * r + byte.clone(),
+                //     );
+                //     if idx < data_rlcs.len() - 1 {
+                //         let next_data_rlc = meta.query_advice(data_rlcs[idx +
+                // 1], Rotation::cur());         cb.
+                // require_equal(             "intermediate data
+                // rlc",             next_data_rlc.clone(),
+                //             new_data_rlc,
+                //         );
+                //         new_data_rlc = next_data_rlc;
+                //     }
+                // }
+                // cb.require_equal("update data rlc", data_rlc.clone(),
+                // new_data_rlc);
             });
             cb.gate(1.expr())
         });
@@ -664,8 +537,7 @@ impl<F: Field> Sha256BitConfig<F> {
                     Rotation(-((NUM_END_ROWS + NUM_ROUNDS - NUM_WORDS_TO_ABSORB) as i32));
                 let value_to_copy = meta.query_advice(column, last_rot);
                 let prev_value = meta.query_advice(column, Rotation::prev());
-                let cur_value = meta.query_advice(column, Rotation::cur());
-                // On squeeze rows fetch the last used value
+                let cur_value = meta.query_advice(column, Rotation::cur()); // On squeeze rows fetch the last used value
                 cb.condition(meta.query_fixed(q_squeeze, Rotation::cur()), |cb| {
                     cb.require_equal(
                         to_const(&format!("{} copy check", name)),
@@ -695,8 +567,8 @@ impl<F: Field> Sha256BitConfig<F> {
                     );
                 });
             };
-            add("length", length);
-            add("data_rlc", data_rlc);
+            add("length", input_len);
+            // add("data_rlc", data_rlc);
             add("last padding", *is_paddings.last().unwrap());
 
             cb.gate(1.expr())
@@ -711,29 +583,42 @@ impl<F: Field> Sha256BitConfig<F> {
                 .iter()
                 .flat_map(|part| to_le_bytes::expr(part))
                 .collect::<Vec<_>>();
-            let r = meta.query_advice(randomness, Rotation::cur());
-            let rlc = compose_rlc::expr(&hash_bytes, r);
-            cb.condition(start_new_hash(meta), |cb| {
-                cb.require_equal(
-                    "hash rlc check",
-                    rlc,
-                    meta.query_advice(hash_rlc, Rotation::cur()),
-                );
-            });
+            println!("hash_bytes len {}", hash_bytes.len());
+            let hash_words = hash_bytes
+                .chunks(8)
+                .map(|vals| {
+                    let mut sum = 0u64.expr();
+                    for idx in (0..8) {
+                        sum = sum + vals[idx].clone() * (256u64 << idx).expr();
+                    }
+                    sum
+                })
+                .collect::<Vec<Expression<F>>>();
+            println!("hash words len {}", hash_words.len());
+            // let r = meta.query_advice(randomness, Rotation::cur());
+            // let rlc = compose_rlc::expr(&hash_bytes, r);
+            let output_words = (0..4)
+                .map(|idx| meta.query_advice(output_words, Rotation(-(3 - idx))))
+                .collect::<Vec<Expression<F>>>();
+            for (hash_word, output_word) in hash_words.into_iter().zip(output_words) {
+                cb.condition(start_new_hash(meta), |cb| {
+                    cb.require_equal("output words check", hash_word, output_word);
+                });
+            }
             cb.gate(meta.query_fixed(q_squeeze, Rotation::cur()))
         });
 
-        meta.create_gate("randomness", |meta| {
-            let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
-            let is_enabled = meta.query_fixed(q_enable, Rotation::cur());
-            let is_first = meta.query_fixed(q_first, Rotation::cur());
-            let r_prev = meta.query_advice(randomness, Rotation::prev());
-            let r_cur = meta.query_advice(randomness, Rotation::cur());
-            cb.condition(and::expr(&[is_enabled, not::expr(is_first)]), |cb| {
-                cb.require_equal("current randomness == previous randomness", r_prev, r_cur);
-            });
-            cb.gate(1.expr())
-        });
+        // meta.create_gate("randomness", |meta| {
+        //     let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
+        //     let is_enabled = meta.query_fixed(q_enable, Rotation::cur());
+        //     let is_first = meta.query_fixed(q_first, Rotation::cur());
+        //     let r_prev = meta.query_advice(randomness, Rotation::prev());
+        //     let r_cur = meta.query_advice(randomness, Rotation::cur());
+        //     cb.condition(and::expr(&[is_enabled, not::expr(is_first)]), |cb| {
+        //         cb.require_equal("current randomness == previous randomness", r_prev,
+        // r_cur);     });
+        //     cb.gate(1.expr())
+        // });
 
         meta.create_gate("is_dummy check", |meta| {
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
@@ -762,47 +647,42 @@ impl<F: Field> Sha256BitConfig<F> {
             q_padding,
             q_padding_last,
             q_squeeze,
-            hash_table,
             word_w,
             word_a,
             word_e,
             is_final,
             is_paddings,
             is_dummy,
-            data_rlcs,
             round_cst,
             h_a,
             h_e,
-            randomness,
+            is_output_enabled,
+            input_len,
+            output_words,
             _marker: PhantomData,
         }
     }
 
-    fn assign(
-        &self,
-        region: &mut Region<'_, F>,
-        witness: &[ShaRow<F>],
-        r: F,
-    ) -> Result<AssignedCell<F, F>, Error> {
+    fn assign(&self, region: &mut Region<'_, F>, witness: &[ShaRow<F>]) -> Result<(), Error> {
         let size = witness.len();
         for (offset, sha256_row) in witness.iter().enumerate() {
             self.set_row(region, offset, sha256_row)?;
         }
-        let first_r = region.assign_advice(
-            || format!("randomness {}", 0),
-            self.randomness,
-            0,
-            || Value::known(r),
-        )?;
-        for offset in 1..size {
-            region.assign_advice(
-                || format!("randomness {}", offset),
-                self.randomness,
-                offset,
-                || Value::known(r),
-            )?;
-        }
-        Ok(first_r)
+        // let first_r = region.assign_advice(
+        //     || format!("randomness {}", 0),
+        //     self.randomness,
+        //     0,
+        //     || Value::known(r),
+        // )?;
+        // for offset in 1..size {
+        //     region.assign_advice(
+        //         || format!("randomness {}", offset),
+        //         self.randomness,
+        //         offset,
+        //         || Value::known(r),
+        //     )?;
+        // }
+        Ok(())
     }
 
     fn set_row(
@@ -887,6 +767,20 @@ impl<F: Field> Sha256BitConfig<F> {
                 [self.is_dummy].as_slice(),
                 [row.is_dummy].as_slice(),
             ),
+            (
+                "is_output_enabled",
+                [self.is_output_enabled].as_slice(),
+                [row.is_final && round == NUM_ROUNDS + 7].as_slice(),
+            ), /* (
+                *     "length",
+                *     [self.input_len].as_slice(),
+                *     [row.length].as_slice(),
+                * ),
+                * (
+                *     "output_word",
+                *     [self.output_words].as_slice(),
+                *     [row.output_word].as_slice(),
+                * ), */
         ] {
             for (idx, (value, column)) in values.iter().zip(columns.iter()).enumerate() {
                 region.assign_advice(
@@ -898,28 +792,42 @@ impl<F: Field> Sha256BitConfig<F> {
             }
         }
 
+        region.assign_advice(
+            || format!("assign {} {} {}", "length", 0, offset),
+            self.input_len,
+            offset,
+            || Value::known(F::from(row.length as u64)),
+        )?;
+
+        region.assign_advice(
+            || format!("assign {} {} {}", "output_word", 0, offset),
+            self.output_words,
+            offset,
+            || Value::known(row.output_word),
+        )?;
+
         // Data rlcs
-        for (idx, (data_rlc, column)) in row.data_rlcs.iter().zip(self.data_rlcs.iter()).enumerate()
-        {
-            region.assign_advice(
-                || format!("assign data rlcs {} {}", idx, offset),
-                *column,
-                offset,
-                || Value::known(*data_rlc),
-            )?;
-        }
+        // for (idx, (data_rlc, column)) in
+        // row.data_rlcs.iter().zip(self.data_rlcs.iter()).enumerate() {
+        //     region.assign_advice(
+        //         || format!("assign data rlcs {} {}", idx, offset),
+        //         *column,
+        //         offset,
+        //         || Value::known(*data_rlc),
+        //     )?;
+        // }
 
         // Hash data
-        self.hash_table.assign_row(
-            region,
-            offset,
-            [
-                F::from(row.is_final && round == NUM_ROUNDS + 7),
-                row.data_rlc,
-                F::from(row.length as u64),
-                row.hash_rlc,
-            ],
-        )?;
+        // self.hash_table.assign_row(
+        //     region,
+        //     offset,
+        //     [
+        //         F::from(row.is_final && round == NUM_ROUNDS + 7),
+        //         row.data_rlc,
+        //         F::from(row.length as u64),
+        //         row.hash_rlc,
+        //     ],
+        // )?;
 
         /*let mut hash_cells = Vec::with_capacity(NUM_BYTES_FINAL_HASH);
         if !row.is_final || round != NUM_ROUNDS + 7 {
@@ -947,7 +855,7 @@ impl<F: Field> Sha256BitConfig<F> {
     }
 }
 
-fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> {
+fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
     let mut bits = into_bits(bytes);
     let mut rows = Vec::<ShaRow<F>>::new();
     // Padding
@@ -979,36 +887,26 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
     let chunks = bits.chunks(RATE_IN_BITS);
     for (idx, chunk) in chunks.enumerate() {
         // Adds a row
-        let mut add_row = |w: u64,
-                           a: u64,
-                           e: u64,
-                           is_final,
-                           is_dummy,
-                           length,
-                           data_rlc,
-                           hash_rlc,
-                           is_paddings,
-                           data_rlcs| {
-            let word_to_bits = |value: u64, num_bits: usize| {
-                into_bits(&value.to_be_bytes())[64 - num_bits..64]
-                    .iter()
-                    .map(|b| *b != 0)
-                    .into_iter()
-                    .collect::<Vec<_>>()
+        let mut add_row =
+            |w: u64, a: u64, e: u64, is_final, is_dummy, length, is_paddings, output_word| {
+                let word_to_bits = |value: u64, num_bits: usize| {
+                    into_bits(&value.to_be_bytes())[64 - num_bits..64]
+                        .iter()
+                        .map(|b| *b != 0)
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                };
+                rows.push(ShaRow {
+                    w: word_to_bits(w, NUM_BITS_PER_WORD_W).try_into().unwrap(),
+                    a: word_to_bits(a, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
+                    e: word_to_bits(e, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
+                    is_final,
+                    is_dummy,
+                    length,
+                    is_paddings,
+                    output_word,
+                });
             };
-            rows.push(ShaRow {
-                w: word_to_bits(w, NUM_BITS_PER_WORD_W).try_into().unwrap(),
-                a: word_to_bits(a, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
-                e: word_to_bits(e, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
-                is_final,
-                is_dummy,
-                length,
-                data_rlc,
-                hash_rlc,
-                is_paddings,
-                data_rlcs,
-            });
-        };
 
         // Last block for this hash
         let is_final_block = idx == target_round; //num_chunks - 1;
@@ -1026,10 +924,8 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
                 is_final,
                 idx > target_round,
                 length,
-                data_rlc,
-                F::zero(),
                 [false, false, false, in_padding],
-                [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
+                F::zero(),
             )
         };
         add_row_start(d, h, idx == 0);
@@ -1041,7 +937,7 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
         for (round, round_cst) in ROUND_CST.iter().enumerate() {
             // Padding/Length/Data rlc
             let mut is_paddings = [false; ABSORB_WIDTH_PER_ROW_BYTES];
-            let mut data_rlcs = [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES];
+            //let mut data_rlcs = [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES];
             if round < NUM_WORDS_TO_ABSORB {
                 // padding/length
                 for is_padding in is_paddings.iter_mut() {
@@ -1054,16 +950,16 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
                 }
                 // data rlc
                 let input_bytes = to_le_bytes::value(&chunk[round * 32..(round + 1) * 32]);
-                data_rlcs[0] = data_rlc;
-                for (idx, (byte, padding)) in input_bytes.iter().zip(is_paddings.iter()).enumerate()
-                {
-                    if !*padding {
-                        data_rlc = data_rlc * r + F::from(*byte as u64);
-                    }
-                    if idx < data_rlcs.len() - 1 {
-                        data_rlcs[idx + 1] = data_rlc;
-                    }
-                }
+                //data_rlcs[0] = data_rlc;
+                // for (idx, (byte, padding)) in
+                // input_bytes.iter().zip(is_paddings.iter()).enumerate() {
+                //     if !*padding {
+                //         data_rlc = data_rlc * r + F::from(*byte as u64);
+                //     }
+                //     if idx < data_rlcs.len() - 1 {
+                //         data_rlcs[idx + 1] = data_rlc;
+                //     }
+                // }
                 in_padding = *is_paddings.last().unwrap();
             }
 
@@ -1112,14 +1008,8 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
                 } else {
                     0
                 },
-                if round < NUM_WORDS_TO_ABSORB {
-                    data_rlc
-                } else {
-                    F::zero()
-                },
-                F::zero(),
                 is_paddings,
-                data_rlcs,
+                F::zero(),
             );
 
             // Truncate the newly calculated values
@@ -1137,29 +1027,49 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
         hs[6] += g;
         hs[7] += h;
 
-        if (idx == target_round) {
-            let hash_bytes = hs
-                .iter()
-                .flat_map(|h| (*h as u32).to_be_bytes())
-                .collect::<Vec<_>>();
-            debug!("hash: {:x?}", &hash_bytes);
-            debug!("data rlc: {:x?}", data_rlc);
-        }
+        // if (idx == target_round) {
+        //     let hash_bytes = hs
+        //         .iter()
+        //         .flat_map(|h| (*h as u32).to_be_bytes())
+        //         .collect::<Vec<_>>();
+        //     debug!("hash: {:x?}", &hash_bytes);
+        //     debug!("data rlc: {:x?}", data_rlc);
+        // }
 
         // Squeeze
 
-        let hash_rlc = if is_final_block {
+        // let hash_rlc = if is_final_block {
+        //     let hash_bytes = hs
+        //         .iter()
+        //         .flat_map(|h| (*h as u32).to_be_bytes())
+        //         .collect::<Vec<_>>();
+        //     rlc::value(&hash_bytes, r)
+        // } else {
+        //     F::zero()
+        // };
+
+        let hash_words = if is_final_block {
             let hash_bytes = hs
                 .iter()
                 .flat_map(|h| (*h as u32).to_be_bytes())
                 .collect::<Vec<_>>();
-            rlc::value(&hash_bytes, r)
+            hash_bytes
+                .chunks(8)
+                .map(|vals| {
+                    let mut sum = 0u64;
+                    for idx in (0..8) {
+                        sum = sum + (vals[idx] as u64) * (256u64 << idx);
+                        println!("idx {} byte {:?} sum {:?}", idx, vals[idx], sum);
+                    }
+                    sum
+                })
+                .collect()
         } else {
-            F::zero()
+            vec![0u64; 4]
         };
 
         // Add end rows
-        let mut add_row_end = |a: u64, e: u64| {
+        let mut add_row_end = |a: u64, e: u64, output_word: F| {
             add_row(
                 0,
                 a,
@@ -1167,15 +1077,13 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
                 false,
                 idx > target_round,
                 0,
-                F::zero(),
-                F::zero(),
                 [false; ABSORB_WIDTH_PER_ROW_BYTES],
-                [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
+                output_word,
             )
         };
-        add_row_end(hs[3], hs[7]);
-        add_row_end(hs[2], hs[6]);
-        add_row_end(hs[1], hs[5]);
+        add_row_end(hs[3], hs[7], F::from(hash_words[0]));
+        add_row_end(hs[2], hs[6], F::from(hash_words[1]));
+        add_row_end(hs[1], hs[5], F::from(hash_words[2]));
         add_row(
             0,
             hs[0],
@@ -1183,10 +1091,8 @@ fn sha256<F: Field>(bytes: &[u8], r: F, max_input_len: usize) -> Vec<ShaRow<F>> 
             is_final_block,
             idx > target_round,
             length,
-            data_rlc,
-            hash_rlc,
             [false, false, false, in_padding],
-            [F::zero(); ABSORB_WIDTH_PER_ROW_BYTES],
+            F::from(hash_words[3]),
         );
 
         // Now truncate the results
@@ -1220,7 +1126,6 @@ mod tests {
     struct TestSha256<F: Field> {
         input: Vec<u8>,
         max_input_len: usize,
-        r: F,
         _f: PhantomData<F>,
     }
 
@@ -1248,11 +1153,11 @@ mod tests {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             let sha256chip = Sha256BitChip::new(config.sha256_config.clone(), self.max_input_len);
-            let first_r = layouter.assign_region(
+            layouter.assign_region(
                 || "digest",
-                |mut region| sha256chip.digest(&mut region, &self.input, self.r),
+                |mut region| sha256chip.digest(&mut region, &self.input),
             )?;
-            layouter.constrain_instance(first_r.cell(), config.instance, 0)?;
+            //layouter.constrain_instance(first_r.cell(), config.instance, 0)?;
             Ok(())
         }
     }
@@ -1260,15 +1165,13 @@ mod tests {
     use rand::{thread_rng, Rng};
     fn verify<F: Field>(k: u32, input: Vec<u8>, max_input_len: usize, success: bool) {
         let rng = thread_rng();
-        let r = F::random(rng);
         let circuit = TestSha256 {
             input,
             max_input_len,
-            r,
             _f: PhantomData,
         };
 
-        let prover = MockProver::<F>::run(k, &circuit, vec![vec![r]]).unwrap();
+        let prover = MockProver::<F>::run(k, &circuit, vec![vec![]]).unwrap();
         let verify_result = prover.verify();
         if verify_result.is_ok() != success {
             if let Some(errors) = verify_result.err() {
@@ -1282,14 +1185,14 @@ mod tests {
 
     #[test]
     fn bit_sha256_simple1() {
-        let k = 10;
+        let k = 8;
         let inputs = (0u8..55).collect::<Vec<_>>();
         verify::<Fr>(k, inputs, 128, true);
     }
 
     #[test]
     fn bit_sha256_simple2() {
-        let k = 12;
+        let k = 11;
         let inputs = vec![1u8; 1000];
         verify::<Fr>(k, inputs, 1024, true);
     }

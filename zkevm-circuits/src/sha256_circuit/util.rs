@@ -27,7 +27,7 @@ pub(crate) const NUM_BITS_PADDING_LENGTH: usize = 64;
 pub(crate) const NUM_START_ROWS: usize = 4;
 pub(crate) const NUM_END_ROWS: usize = 4;
 pub(crate) const NUM_BYTES_FINAL_HASH: usize = 32;
-pub(crate) const MAX_DEGREE: usize = 34;
+pub(crate) const MAX_DEGREE: usize = 5;
 
 pub(crate) const ROUND_CST: [u32; NUM_ROUNDS] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -145,15 +145,22 @@ pub(crate) fn get_degree() -> usize {
 /// Encodes the data using rlc
 pub mod compose_rlc {
     use eth_types::Field;
+    use gadgets::util::Expr;
     use halo2_proofs::plonk::Expression;
 
-    pub(crate) fn expr<F: Field>(expressions: &[Expression<F>], r: Expression<F>) -> Expression<F> {
-        let mut rlc = expressions[0].clone();
-        let mut multiplier = r.clone();
-        for expression in expressions[1..].iter() {
-            rlc = rlc + expression.clone() * multiplier.clone();
-            multiplier = multiplier * r.clone();
-        }
-        rlc
-    }
+    // pub(crate) fn expr<F: Field>(
+    //     expressions: &[Expression<F>],
+    //     rs: &[Expression<F>],
+    // ) -> Expression<F> {
+    //     let mut rlc = 0.expr();
+    //     //let mut multiplier = r.clone();
+    //     for (expression, r) in expressions.iter().zip(rs) {
+    //         rlc = rlc + expression * r;
+    //     }
+    //     // for expression in expressions[1..].iter() {
+    //     //     rlc = rlc + expression.clone() * multiplier.clone();
+    //     //     multiplier = multiplier * r.clone();
+    //     // }
+    //     rlc
+    // }
 }
