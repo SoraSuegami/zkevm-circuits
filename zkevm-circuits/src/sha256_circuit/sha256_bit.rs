@@ -27,6 +27,7 @@ struct ShaRow<F> {
     // hash_rlc: F,
     is_paddings: [bool; ABSORB_WIDTH_PER_ROW_BYTES],
     // data_rlcs: [F; ABSORB_WIDTH_PER_ROW_BYTES],
+    input_word: F,
     output_word: F,
 }
 
@@ -36,7 +37,7 @@ pub struct Sha256BitConfig<F> {
     q_enable: Column<Fixed>,
     q_first: Column<Fixed>,
     q_extend: Column<Fixed>,
-    q_start: Column<Fixed>,
+    pub q_start: Column<Fixed>,
     q_compression: Column<Fixed>,
     q_end: Column<Fixed>,
     q_padding: Column<Fixed>,
@@ -53,10 +54,12 @@ pub struct Sha256BitConfig<F> {
     h_a: Column<Fixed>,
     h_e: Column<Fixed>,
     /// The columns for other circuits to lookup hash results
-    // pub hash_table: KeccakTable,
-    pub is_output_enabled: Column<Advice>,
     /// Byte array input length
     pub input_len: Column<Advice>,
+    /// The input words (16 bytes) result,
+    pub input_words: Column<Advice>,
+    /// The enable flag of the output hash.
+    pub is_output_enabled: Column<Advice>,
     /// The hash words (8 bytes) result,
     pub output_words: Column<Advice>,
     /// The column for the randomness used to compute random linear
@@ -124,6 +127,7 @@ impl<F: Field> Sha256BitConfig<F> {
         let q_first = meta.fixed_column();
         let q_extend = meta.fixed_column();
         let q_start = meta.fixed_column();
+        meta.enable_equality(q_start);
         let q_compression = meta.fixed_column();
         let q_end = meta.fixed_column();
         let q_padding = meta.fixed_column();
@@ -142,10 +146,12 @@ impl<F: Field> Sha256BitConfig<F> {
         //let hash_table = KeccakTable::construct(meta);
         // let randomness = meta.advice_column();
         // meta.enable_equality(randomness);
-        let is_output_enabled = meta.advice_column();
-        meta.enable_equality(is_output_enabled);
         let input_len = meta.advice_column();
         meta.enable_equality(input_len);
+        let input_words = meta.advice_column();
+        meta.enable_equality(input_words);
+        let is_output_enabled = meta.advice_column();
+        meta.enable_equality(is_output_enabled);
         let output_words = meta.advice_column();
         meta.enable_equality(output_words);
         // let data_rlc = hash_table.input_rlc;
@@ -295,15 +301,23 @@ impl<F: Field> Sha256BitConfig<F> {
             let h_a = meta.query_fixed(h_a, Rotation::cur());
             let h_e = meta.query_fixed(h_e, Rotation::cur());
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
+            let new_a_ext = decode::expr(&new_a_ext);
+            let new_e_ext = decode::expr(&new_e_ext);
+            let new_ext = new_a_ext.clone() + (1u64 << 32).expr() * new_e_ext.clone();
             cb.require_equal(
                 "start a",
-                decode::expr(&new_a_ext),
+                new_a_ext,
                 select::expr(is_final.expr(), h_a, decode::expr(&d)),
             );
             cb.require_equal(
                 "start e",
-                decode::expr(&new_e_ext),
+                new_e_ext,
                 select::expr(is_final.expr(), h_e, decode::expr(&h)),
+            );
+            cb.require_equal(
+                "input words",
+                meta.query_advice(input_words, Rotation::cur()),
+                new_ext,
             );
             cb.gate(meta.query_fixed(q_start, Rotation::cur()))
         });
@@ -608,18 +622,6 @@ impl<F: Field> Sha256BitConfig<F> {
             cb.gate(meta.query_fixed(q_squeeze, Rotation::cur()))
         });
 
-        // meta.create_gate("randomness", |meta| {
-        //     let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
-        //     let is_enabled = meta.query_fixed(q_enable, Rotation::cur());
-        //     let is_first = meta.query_fixed(q_first, Rotation::cur());
-        //     let r_prev = meta.query_advice(randomness, Rotation::prev());
-        //     let r_cur = meta.query_advice(randomness, Rotation::cur());
-        //     cb.condition(and::expr(&[is_enabled, not::expr(is_first)]), |cb| {
-        //         cb.require_equal("current randomness == previous randomness", r_prev,
-        // r_cur);     });
-        //     cb.gate(1.expr())
-        // });
-
         meta.create_gate("is_dummy check", |meta| {
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
             let is_dummy_change = meta.query_advice(is_dummy, Rotation::cur())
@@ -656,8 +658,9 @@ impl<F: Field> Sha256BitConfig<F> {
             round_cst,
             h_a,
             h_e,
-            is_output_enabled,
             input_len,
+            input_words,
+            is_output_enabled,
             output_words,
             _marker: PhantomData,
         }
@@ -800,6 +803,13 @@ impl<F: Field> Sha256BitConfig<F> {
         )?;
 
         region.assign_advice(
+            || format!("assign {} {} {}", "input_word", 0, offset),
+            self.input_words,
+            offset,
+            || Value::known(row.input_word),
+        )?;
+
+        region.assign_advice(
             || format!("assign {} {} {}", "output_word", 0, offset),
             self.output_words,
             offset,
@@ -887,26 +897,34 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
     let chunks = bits.chunks(RATE_IN_BITS);
     for (idx, chunk) in chunks.enumerate() {
         // Adds a row
-        let mut add_row =
-            |w: u64, a: u64, e: u64, is_final, is_dummy, length, is_paddings, output_word| {
-                let word_to_bits = |value: u64, num_bits: usize| {
-                    into_bits(&value.to_be_bytes())[64 - num_bits..64]
-                        .iter()
-                        .map(|b| *b != 0)
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                };
-                rows.push(ShaRow {
-                    w: word_to_bits(w, NUM_BITS_PER_WORD_W).try_into().unwrap(),
-                    a: word_to_bits(a, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
-                    e: word_to_bits(e, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
-                    is_final,
-                    is_dummy,
-                    length,
-                    is_paddings,
-                    output_word,
-                });
+        let mut add_row = |w: u64,
+                           a: u64,
+                           e: u64,
+                           is_final,
+                           is_dummy,
+                           length,
+                           is_paddings,
+                           input_word,
+                           output_word| {
+            let word_to_bits = |value: u64, num_bits: usize| {
+                into_bits(&value.to_be_bytes())[64 - num_bits..64]
+                    .iter()
+                    .map(|b| *b != 0)
+                    .into_iter()
+                    .collect::<Vec<_>>()
             };
+            rows.push(ShaRow {
+                w: word_to_bits(w, NUM_BITS_PER_WORD_W).try_into().unwrap(),
+                a: word_to_bits(a, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
+                e: word_to_bits(e, NUM_BITS_PER_WORD_EXT).try_into().unwrap(),
+                is_final,
+                is_dummy,
+                length,
+                is_paddings,
+                input_word,
+                output_word,
+            });
+        };
 
         // Last block for this hash
         let is_final_block = idx == target_round; //num_chunks - 1;
@@ -925,6 +943,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                 idx > target_round,
                 length,
                 [false, false, false, in_padding],
+                F::from(a) + F::from(e << 32),
                 F::zero(),
             )
         };
@@ -1010,6 +1029,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                 },
                 is_paddings,
                 F::zero(),
+                F::zero(),
             );
 
             // Truncate the newly calculated values
@@ -1078,6 +1098,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                 idx > target_round,
                 0,
                 [false; ABSORB_WIDTH_PER_ROW_BYTES],
+                F::zero(),
                 output_word,
             )
         };
@@ -1092,6 +1113,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
             idx > target_round,
             length,
             [false, false, false, in_padding],
+            F::zero(),
             F::from(hash_words[3]),
         );
 
