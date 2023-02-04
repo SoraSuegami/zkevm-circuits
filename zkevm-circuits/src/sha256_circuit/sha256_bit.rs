@@ -75,6 +75,16 @@ pub struct Sha256BitChip<F: Field> {
     max_input_len: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct Sha256AssignedRow<F: Field> {
+    pub offset: usize,
+    pub q_start: AssignedCell<F, F>,
+    pub input_len: AssignedCell<F, F>,
+    pub input_word: AssignedCell<F, F>,
+    pub is_output_enabled: AssignedCell<F, F>,
+    pub output_word: AssignedCell<F, F>,
+}
+
 // impl<F: Field> Sha256BitChip<F> {
 //     fn r() -> F {
 //         F::from(123456)
@@ -112,7 +122,11 @@ impl<F: Field> Sha256BitChip<F> {
     ///
     /// # Return values
     /// Returns a vector of the assigned cells for the hash results.
-    pub fn digest(&self, region: &mut Region<'_, F>, input: &[u8]) -> Result<(), Error> {
+    pub fn digest(
+        &self,
+        region: &mut Region<'_, F>,
+        input: &[u8],
+    ) -> Result<Vec<Sha256AssignedRow<F>>, Error> {
         assert!(input.len() <= self.max_input_len);
         let witness = sha256(input, self.max_input_len);
         self.config.assign(region, &witness)
@@ -666,11 +680,17 @@ impl<F: Field> Sha256BitConfig<F> {
         }
     }
 
-    fn assign(&self, region: &mut Region<'_, F>, witness: &[ShaRow<F>]) -> Result<(), Error> {
+    fn assign(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &[ShaRow<F>],
+    ) -> Result<Vec<Sha256AssignedRow<F>>, Error> {
         let size = witness.len();
+        let mut assigned_rows = Vec::new();
         for (offset, sha256_row) in witness.iter().enumerate() {
-            self.set_row(region, offset, sha256_row)?;
+            assigned_rows.push(self.set_row(region, offset, sha256_row)?);
         }
+        Ok(assigned_rows)
         // let first_r = region.assign_advice(
         //     || format!("randomness {}", 0),
         //     self.randomness,
@@ -685,7 +705,6 @@ impl<F: Field> Sha256BitConfig<F> {
         //         || Value::known(r),
         //     )?;
         // }
-        Ok(())
     }
 
     fn set_row(
@@ -693,7 +712,7 @@ impl<F: Field> Sha256BitConfig<F> {
         region: &mut Region<'_, F>,
         offset: usize,
         row: &ShaRow<F>,
-    ) -> Result<(), Error> {
+    ) -> Result<Sha256AssignedRow<F>, Error> {
         let round = offset % (NUM_ROUNDS + 8);
         // Fixed values
         for (name, column, value) in &[
@@ -704,7 +723,6 @@ impl<F: Field> Sha256BitConfig<F> {
                 self.q_extend,
                 F::from((4 + 16..4 + NUM_ROUNDS).contains(&round)),
             ),
-            ("q_start", self.q_start, F::from(round < 4)),
             (
                 "q_compression",
                 self.q_compression,
@@ -750,6 +768,13 @@ impl<F: Field> Sha256BitConfig<F> {
             )?;
         }
 
+        let q_start = region.assign_fixed(
+            || format!("assign {} {}", "q_start", offset),
+            self.q_start,
+            offset,
+            || Value::known(F::from(round < 4)),
+        )?;
+
         // Advice values
         for (name, columns, values) in [
             ("w bits", self.word_w.as_slice(), row.w.as_slice()),
@@ -770,20 +795,6 @@ impl<F: Field> Sha256BitConfig<F> {
                 [self.is_dummy].as_slice(),
                 [row.is_dummy].as_slice(),
             ),
-            (
-                "is_output_enabled",
-                [self.is_output_enabled].as_slice(),
-                [row.is_final && round == NUM_ROUNDS + 7].as_slice(),
-            ), /* (
-                *     "length",
-                *     [self.input_len].as_slice(),
-                *     [row.length].as_slice(),
-                * ),
-                * (
-                *     "output_word",
-                *     [self.output_words].as_slice(),
-                *     [row.output_word].as_slice(),
-                * ), */
         ] {
             for (idx, (value, column)) in values.iter().zip(columns.iter()).enumerate() {
                 region.assign_advice(
@@ -795,21 +806,28 @@ impl<F: Field> Sha256BitConfig<F> {
             }
         }
 
-        region.assign_advice(
+        let is_output_enabled = region.assign_advice(
+            || format!("assign {} {} {}", "is_output_enabled", 0, offset),
+            self.is_output_enabled,
+            offset,
+            || Value::known(F::from(row.is_final && round == NUM_ROUNDS + 7)),
+        )?;
+
+        let input_len = region.assign_advice(
             || format!("assign {} {} {}", "length", 0, offset),
             self.input_len,
             offset,
             || Value::known(F::from(row.length as u64)),
         )?;
 
-        region.assign_advice(
+        let input_word = region.assign_advice(
             || format!("assign {} {} {}", "input_word", 0, offset),
             self.input_words,
             offset,
             || Value::known(row.input_word),
         )?;
 
-        region.assign_advice(
+        let output_word = region.assign_advice(
             || format!("assign {} {} {}", "output_word", 0, offset),
             self.output_words,
             offset,
@@ -861,7 +879,14 @@ impl<F: Field> Sha256BitConfig<F> {
                 hash_cells.push(cell);
             }
         }*/
-        Ok(())
+        Ok(Sha256AssignedRow {
+            offset,
+            q_start,
+            input_len,
+            input_word,
+            is_output_enabled,
+            output_word,
+        })
     }
 }
 
