@@ -37,7 +37,7 @@ pub struct Sha256BitConfig<F> {
     q_enable: Column<Fixed>,
     q_first: Column<Fixed>,
     q_extend: Column<Fixed>,
-    pub q_start: Column<Fixed>,
+    q_start: Column<Fixed>,
     q_compression: Column<Fixed>,
     q_end: Column<Fixed>,
     q_padding: Column<Fixed>,
@@ -48,7 +48,7 @@ pub struct Sha256BitConfig<F> {
     word_e: [Column<Advice>; NUM_BITS_PER_WORD_EXT],
     is_final: Column<Advice>,
     is_paddings: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
-    is_dummy: Column<Advice>,
+    pub is_dummy: Column<Advice>,
     // data_rlcs: [Column<Advice>; ABSORB_WIDTH_PER_ROW_BYTES],
     round_cst: Column<Fixed>,
     h_a: Column<Fixed>,
@@ -76,13 +76,13 @@ pub struct Sha256BitChip<F: Field> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Sha256AssignedRow<F: Field> {
+pub struct Sha256AssignedRows<F: Field> {
     pub offset: usize,
-    pub q_start: AssignedCell<F, F>,
-    pub input_len: AssignedCell<F, F>,
-    pub input_word: AssignedCell<F, F>,
-    pub is_output_enabled: AssignedCell<F, F>,
-    pub output_word: AssignedCell<F, F>,
+    pub input_len: Vec<AssignedCell<F, F>>,
+    pub input_words: Vec<AssignedCell<F, F>>,
+    pub is_output_enabled: Vec<AssignedCell<F, F>>,
+    pub output_words: Vec<AssignedCell<F, F>>,
+    pub is_dummy: Vec<AssignedCell<F, F>>,
 }
 
 // impl<F: Field> Sha256BitChip<F> {
@@ -90,6 +90,19 @@ pub struct Sha256AssignedRow<F: Field> {
 //         F::from(123456)
 //     }
 // }
+
+impl<F: Field> Sha256AssignedRows<F> {
+    pub fn new() -> Self {
+        Self {
+            offset: 0,
+            input_len: vec![],
+            input_words: vec![],
+            is_output_enabled: vec![],
+            output_words: vec![],
+            is_dummy: vec![],
+        }
+    }
+}
 
 impl<F: Field> Sha256BitChip<F> {
     /// Create a new [`Sha256BitChip`] from the configuration.
@@ -126,7 +139,7 @@ impl<F: Field> Sha256BitChip<F> {
         &self,
         region: &mut Region<'_, F>,
         input: &[u8],
-    ) -> Result<Vec<Sha256AssignedRow<F>>, Error> {
+    ) -> Result<Sha256AssignedRows<F>, Error> {
         assert!(input.len() <= self.max_input_len);
         let witness = sha256(input, self.max_input_len);
         self.config.assign(region, &witness)
@@ -141,7 +154,6 @@ impl<F: Field> Sha256BitConfig<F> {
         let q_first = meta.fixed_column();
         let q_extend = meta.fixed_column();
         let q_start = meta.fixed_column();
-        meta.enable_equality(q_start);
         let q_compression = meta.fixed_column();
         let q_end = meta.fixed_column();
         let q_padding = meta.fixed_column();
@@ -153,6 +165,7 @@ impl<F: Field> Sha256BitConfig<F> {
         let is_final = meta.advice_column();
         let is_paddings = array_init::array_init(|_| meta.advice_column());
         let is_dummy = meta.advice_column();
+        meta.enable_equality(is_dummy);
         // let data_rlcs = array_init::array_init(|_| meta.advice_column());
         let round_cst = meta.fixed_column();
         let h_a = meta.fixed_column();
@@ -684,11 +697,11 @@ impl<F: Field> Sha256BitConfig<F> {
         &self,
         region: &mut Region<'_, F>,
         witness: &[ShaRow<F>],
-    ) -> Result<Vec<Sha256AssignedRow<F>>, Error> {
+    ) -> Result<Sha256AssignedRows<F>, Error> {
         let size = witness.len();
-        let mut assigned_rows = Vec::new();
+        let mut assigned_rows = Sha256AssignedRows::new();
         for (offset, sha256_row) in witness.iter().enumerate() {
-            assigned_rows.push(self.set_row(region, offset, sha256_row)?);
+            self.set_row(region, sha256_row, &mut assigned_rows)?
         }
         Ok(assigned_rows)
         // let first_r = region.assign_advice(
@@ -710,10 +723,13 @@ impl<F: Field> Sha256BitConfig<F> {
     fn set_row(
         &self,
         region: &mut Region<'_, F>,
-        offset: usize,
         row: &ShaRow<F>,
-    ) -> Result<Sha256AssignedRow<F>, Error> {
+        assigned_rows: &mut Sha256AssignedRows<F>,
+    ) -> Result<(), Error> {
+        let offset = assigned_rows.offset;
+        assigned_rows.offset += 1;
         let round = offset % (NUM_ROUNDS + 8);
+
         // Fixed values
         for (name, column, value) in &[
             ("q_enable", self.q_enable, F::from(true)),
@@ -790,11 +806,6 @@ impl<F: Field> Sha256BitConfig<F> {
                 [self.is_final].as_slice(),
                 [row.is_final].as_slice(),
             ),
-            (
-                "is_dummy",
-                [self.is_dummy].as_slice(),
-                [row.is_dummy].as_slice(),
-            ),
         ] {
             for (idx, (value, column)) in values.iter().zip(columns.iter()).enumerate() {
                 region.assign_advice(
@@ -833,6 +844,26 @@ impl<F: Field> Sha256BitConfig<F> {
             offset,
             || Value::known(row.output_word),
         )?;
+
+        let is_dummy = region.assign_advice(
+            || format!("assign {} {} {}", "is_dummy", 0, offset),
+            self.is_dummy,
+            offset,
+            || Value::known(F::from(row.is_dummy)),
+        )?;
+
+        if round < 4 {
+            assigned_rows.input_words.push(input_word);
+        }
+
+        if round >= NUM_ROUNDS + 4 {
+            assigned_rows.output_words.push(output_word);
+        }
+
+        if round == NUM_ROUNDS + 7 {
+            assigned_rows.is_output_enabled.push(is_output_enabled);
+            assigned_rows.input_len.push(input_len);
+        }
 
         // Data rlcs
         // for (idx, (data_rlc, column)) in
@@ -879,14 +910,7 @@ impl<F: Field> Sha256BitConfig<F> {
                 hash_cells.push(cell);
             }
         }*/
-        Ok(Sha256AssignedRow {
-            offset,
-            q_start,
-            input_len,
-            input_word,
-            is_output_enabled,
-            output_word,
-        })
+        Ok(())
     }
 }
 
