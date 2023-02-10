@@ -56,7 +56,7 @@ pub struct Sha256BitConfig<F> {
     /// The columns for other circuits to lookup hash results
     /// Byte array input length
     pub input_len: Column<Advice>,
-    /// The input words (16 bytes) result,
+    /// The input words (4 bytes) result,
     pub input_words: Column<Advice>,
     /// The enable flag of the output hash.
     pub is_output_enabled: Column<Advice>,
@@ -330,7 +330,7 @@ impl<F: Field> Sha256BitConfig<F> {
             let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
             let new_a_ext = decode::expr(&new_a_ext);
             let new_e_ext = decode::expr(&new_e_ext);
-            let new_ext = new_a_ext.clone() + (1u64 << 32).expr() * new_e_ext.clone();
+            //let new_ext = new_a_ext.clone() + (1u64 << 32).expr() * new_e_ext.clone();
             cb.require_equal(
                 "start a",
                 new_a_ext,
@@ -341,11 +341,11 @@ impl<F: Field> Sha256BitConfig<F> {
                 new_e_ext,
                 select::expr(is_final.expr(), h_e, decode::expr(&h)),
             );
-            cb.require_equal(
-                "input words",
-                meta.query_advice(input_words, Rotation::cur()),
-                new_ext,
-            );
+            // cb.require_equal(
+            //     "input words",
+            //     meta.query_advice(input_words, Rotation::cur()),
+            //     new_ext,
+            // );
             cb.gate(meta.query_fixed(q_start, Rotation::cur()))
         });
 
@@ -432,6 +432,21 @@ impl<F: Field> Sha256BitConfig<F> {
 
         // Create bytes from input bits
         let input_bytes = to_le_bytes::expr(w);
+
+        // Input bytes
+        meta.create_gate("input bytes", |meta| {
+            let mut cb = BaseConstraintBuilder::new(MAX_DEGREE);
+            let q_padding = meta.query_fixed(q_padding, Rotation::cur());
+            let input_words = meta.query_advice(input_words, Rotation::cur());
+            let sum = input_bytes[0].clone()
+                + (1u64 << 8).expr() * input_bytes[1].clone()
+                + (1u64 << 16).expr() * input_bytes[2].clone()
+                + (1u64 << 24).expr() * input_bytes[3].clone();
+            cb.condition(q_padding, |cb| {
+                cb.require_equal("input_bytes = input_words", sum, input_words);
+            });
+            cb.gate(1.expr())
+        });
 
         // Padding
         meta.create_gate("padding", |meta| {
@@ -624,7 +639,6 @@ impl<F: Field> Sha256BitConfig<F> {
                 .iter()
                 .flat_map(|part| to_le_bytes::expr(part))
                 .collect::<Vec<_>>();
-            println!("hash_bytes len {}", hash_bytes.len());
             let hash_words = hash_bytes
                 .chunks(8)
                 .map(|vals| {
@@ -635,7 +649,6 @@ impl<F: Field> Sha256BitConfig<F> {
                     sum
                 })
                 .collect::<Vec<Expression<F>>>();
-            println!("hash words len {}", hash_words.len());
             // let r = meta.query_advice(randomness, Rotation::cur());
             // let rlc = compose_rlc::expr(&hash_bytes, r);
             let output_words = (0..4)
@@ -852,7 +865,7 @@ impl<F: Field> Sha256BitConfig<F> {
             || Value::known(F::from(row.is_dummy)),
         )?;
 
-        if round < 4 {
+        if (4..20).contains(&round) {
             assigned_rows.input_words.push(input_word);
         }
 
@@ -992,7 +1005,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                 idx > target_round,
                 length,
                 [false, false, false, in_padding],
-                F::from(a) + F::from(e << 32),
+                F::zero(),
                 F::zero(),
             )
         };
@@ -1017,7 +1030,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                     };
                 }
                 // data rlc
-                let input_bytes = to_le_bytes::value(&chunk[round * 32..(round + 1) * 32]);
+                //let input_bytes = to_le_bytes::value(&chunk[round * 32..(round + 1) * 32]);
                 //data_rlcs[0] = data_rlc;
                 // for (idx, (byte, padding)) in
                 // input_bytes.iter().zip(is_paddings.iter()).enumerate() {
@@ -1043,6 +1056,16 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                     ^ rotate::value(get_w(2), 19)
                     ^ shift::value(get_w(2), 10);
                 get_w(16) + s0 + get_w(7) + s1
+            };
+            let input_word = if round < NUM_WORDS_TO_ABSORB {
+                let bytes = to_le_bytes::value(&chunk[round * 32..(round + 1) * 32]);
+                let sum: u64 = (bytes[0] as u64)
+                    + (1u64 << 8) * (bytes[1] as u64)
+                    + (1u64 << 16) * (bytes[2] as u64)
+                    + (1u64 << 24) * (bytes[3] as u64);
+                F::from(sum)
+            } else {
+                F::zero()
             };
             let w = w_ext & 0xFFFFFFFF;
             ws.push(w);
@@ -1077,7 +1100,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                     0
                 },
                 is_paddings,
-                F::zero(),
+                input_word,
                 F::zero(),
             );
 
@@ -1128,7 +1151,6 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                     let mut sum = 0u64;
                     for idx in (0..8) {
                         sum = sum + (vals[idx] as u64) * (256u64 << idx);
-                        println!("idx {} byte {:?} sum {:?}", idx, vals[idx], sum);
                     }
                     sum
                 })
