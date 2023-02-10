@@ -1157,7 +1157,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
             vec![0u64; 4]
         };
         if cfg!(debug_assertions) && idx == target_round {
-            dbg!("hash words {:x?}", hash_words);
+            dbg!("hash words {:x?}", hash_words.clone());
         }
 
         // Add end rows
