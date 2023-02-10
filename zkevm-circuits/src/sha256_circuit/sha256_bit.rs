@@ -643,8 +643,8 @@ impl<F: Field> Sha256BitConfig<F> {
                 .chunks(8)
                 .map(|vals| {
                     let mut sum = 0u64.expr();
-                    for idx in (0..8) {
-                        sum = sum + vals[idx].clone() * (256u64 << idx).expr();
+                    for idx in 0..8 {
+                        sum = sum + vals[idx].clone() * (1u64 << (8 * idx)).expr();
                     }
                     sum
                 })
@@ -952,7 +952,6 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
         .try_into()
         .unwrap();
     let mut length = 0usize;
-    let mut data_rlc = F::zero();
     let mut in_padding = false;
 
     // Process each block
@@ -1124,8 +1123,7 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
         //         .iter()
         //         .flat_map(|h| (*h as u32).to_be_bytes())
         //         .collect::<Vec<_>>();
-        //     debug!("hash: {:x?}", &hash_bytes);
-        //     debug!("data rlc: {:x?}", data_rlc);
+        //     println!("hash: {:x?}", &hash_bytes);
         // }
 
         // Squeeze
@@ -1149,8 +1147,8 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
                 .chunks(8)
                 .map(|vals| {
                     let mut sum = 0u64;
-                    for idx in (0..8) {
-                        sum = sum + (vals[idx] as u64) * (256u64 << idx);
+                    for idx in 0..8 {
+                        sum = sum + (vals[idx] as u64) * (1u64 << (8 * idx));
                     }
                     sum
                 })
@@ -1158,6 +1156,9 @@ fn sha256<F: Field>(bytes: &[u8], max_input_len: usize) -> Vec<ShaRow<F>> {
         } else {
             vec![0u64; 4]
         };
+        if idx == target_round {
+            println!("hash words {:x?}", hash_words);
+        }
 
         // Add end rows
         let mut add_row_end = |a: u64, e: u64, output_word: F| {
@@ -1288,5 +1289,12 @@ mod tests {
         let k = 11;
         let inputs = vec![1u8; 1000];
         verify::<Fr>(k, inputs, 1024, true);
+    }
+
+    #[test]
+    fn bit_sha256_simple3() {
+        let k = 11;
+        let inputs = vec![0u8];
+        verify::<Fr>(k, inputs, 128, true);
     }
 }
