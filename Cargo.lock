@@ -310,7 +310,7 @@ dependencies = [
  "ethers-core",
  "ethers-providers",
  "gadgets",
- "halo2_proofs 0.2.0",
+ "halo2_proofs",
  "hex",
  "itertools",
  "keccak256",
@@ -999,7 +999,7 @@ version = "0.1.0"
 dependencies = [
  "ethers-core",
  "ethers-signers",
- "halo2_proofs 0.2.0",
+ "halo2_proofs",
  "hex",
  "itertools",
  "lazy_static",
@@ -1406,7 +1406,7 @@ version = "0.1.0"
 dependencies = [
  "digest 0.7.6",
  "eth-types",
- "halo2_proofs 0.2.0",
+ "halo2_proofs",
  "rand",
  "rand_xorshift",
  "sha3 0.7.3",
@@ -1519,32 +1519,18 @@ checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 
 [[package]]
 name = "halo2_proofs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e925780549adee8364c7f2b685c753f6f3df23bde520c67416e93bf615933760"
-dependencies = [
- "blake2b_simd",
- "ff",
- "group",
- "pasta_curves",
- "plotters",
- "rand_core",
- "rayon",
- "tabbycat",
-]
-
-[[package]]
-name = "halo2_proofs"
 version = "0.2.0"
-source = "git+https://github.com/privacy-scaling-explorations/halo2.git?tag=v2023_02_02#0a8646b78286a13d320759b1c585262d6536dce4"
+source = "git+https://github.com/privacy-scaling-explorations/halo2.git?tag=v2023_01_20#c7e42e41f8141745ba0b90213438f240d55cb347"
 dependencies = [
  "blake2b_simd",
  "ff",
  "group",
  "halo2curves",
+ "plotters",
  "rand_core",
  "rayon",
  "sha3 0.9.1",
+ "tabbycat",
  "tracing",
 ]
 
@@ -1880,7 +1866,7 @@ name = "keccak256"
 version = "0.1.0"
 dependencies = [
  "eth-types",
- "halo2_proofs 0.1.0",
+ "halo2_proofs",
  "itertools",
  "lazy_static",
  "num-bigint",
@@ -3774,7 +3760,7 @@ dependencies = [
  "ethers-core",
  "ethers-signers",
  "gadgets",
- "halo2_proofs 0.2.0",
+ "halo2_proofs",
  "hex",
  "itertools",
  "keccak256",
@@ -3790,3 +3776,8 @@ dependencies = [
  "strum",
  "strum_macros",
 ]
+
+[[patch.unused]]
+name = "halo2_proofs"
+version = "0.2.0"
+source = "git+https://github.com/privacy-scaling-explorations/halo2.git?tag=v2023_02_02#0a8646b78286a13d320759b1c585262d6536dce4"
