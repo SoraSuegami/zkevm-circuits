@@ -791,6 +791,7 @@ impl<F: Field> Sha256BitConfig<F> {
         println!("offset {}", offset);
         assigned_rows.offset += 1;
         let round = offset % (NUM_ROUNDS + 8);
+        let cur_offset = offset - pre_sha2_row_numbers;
         // Fixed values
         for (name, column, value) in &[
             ("q_enable", self.q_enable, F::from(true)),
@@ -844,9 +845,9 @@ impl<F: Field> Sha256BitConfig<F> {
             ),
         ] {
             region.assign_fixed(
-                || format!("assign {} {}", name, offset),
+                || format!("assign {} {}", name, cur_offset),
                 *column,
-                offset,
+                cur_offset,
                 || Value::known(*value),
             )?;
         }
@@ -869,59 +870,59 @@ impl<F: Field> Sha256BitConfig<F> {
         ] {
             for (idx, (value, column)) in values.iter().zip(columns.iter()).enumerate() {
                 region.assign_advice(
-                    || format!("assign {} {} {}", name, idx, offset),
+                    || format!("assign {} {} {}", name, idx, cur_offset),
                     *column,
-                    offset,
+                    cur_offset,
                     || Value::known(F::from(*value)),
                 )?;
             }
         }
 
         let assigned_ha = region.assign_advice(
-            || format!("assign {} {} {}", "Ha", 0, offset),
+            || format!("assign {} {} {}", "Ha", 0, cur_offset),
             self.h_a,
-            offset,
+            cur_offset,
             || Value::known(F::from(row.h_a)),
         )?;
         let assigned_he = region.assign_advice(
-            || format!("assign {} {} {}", "He", 0, offset),
+            || format!("assign {} {} {}", "He", 0, cur_offset),
             self.h_e,
-            offset,
+            cur_offset,
             || Value::known(F::from(row.h_e)),
         )?;
 
         let is_output_enabled = region.assign_advice(
-            || format!("assign {} {} {}", "is_output_enabled", 0, offset),
+            || format!("assign {} {} {}", "is_output_enabled", 0, cur_offset),
             self.is_output_enabled,
-            offset,
+            cur_offset,
             || Value::known(F::from(row.is_final && round == NUM_ROUNDS + 7)),
         )?;
 
         let input_len = region.assign_advice(
-            || format!("assign {} {} {}", "length", 0, offset),
+            || format!("assign {} {} {}", "length", 0, cur_offset),
             self.input_len,
-            offset,
+            cur_offset,
             || Value::known(F::from(row.length as u64)),
         )?;
 
         let input_word = region.assign_advice(
-            || format!("assign {} {} {}", "input_word", 0, offset),
+            || format!("assign {} {} {}", "input_word", 0, cur_offset),
             self.input_words,
-            offset,
+            cur_offset,
             || Value::known(row.input_word),
         )?;
 
         let output_word = region.assign_advice(
-            || format!("assign {} {} {}", "output_word", 0, offset),
+            || format!("assign {} {} {}", "output_word", 0, cur_offset),
             self.output_words,
-            offset,
+            cur_offset,
             || Value::known(row.output_word),
         )?;
 
         let is_dummy = region.assign_advice(
-            || format!("assign {} {} {}", "is_dummy", 0, offset),
+            || format!("assign {} {} {}", "is_dummy", 0, cur_offset),
             self.is_dummy,
-            offset,
+            cur_offset,
             || Value::known(F::from(row.is_dummy)),
         )?;
 
@@ -1356,7 +1357,7 @@ mod tests {
             println!("input byte per circuit {}", self.max_input_len / 2);
             let witness = sha256::<F>(&self.input, self.max_input_len, self.max_input_len / 2);
             layouter.assign_region(
-                || "digest 1",
+                || "digest double",
                 |mut region| {
                     // sha256chip1.digest(&mut region, &self.input[0..self.input.len() / 2]);
                     let mut assigned_rows = Sha256AssignedRows::<F>::new(0);
@@ -1365,13 +1366,6 @@ mod tests {
                         &witness[0..witness.len() / 2],
                         &mut assigned_rows,
                     )?;
-                    Ok(())
-                },
-            )?;
-            layouter.assign_region(
-                || "digest 2",
-                |mut region| {
-                    let mut assigned_rows = Sha256AssignedRows::<F>::new(witness.len() / 2);
                     sha256chip2.assign_witness(
                         &mut region,
                         &witness[witness.len() / 2..witness.len()],
@@ -1407,6 +1401,6 @@ mod tests {
     fn bit_sha256_double_simple1() {
         let k = 11;
         let inputs = vec![0u8];
-        verify_double::<Fr>(k, inputs, 128, true);
+        verify_double::<Fr>(k, inputs, 1792 * 2, true);
     }
 }
