@@ -142,25 +142,24 @@ pub(crate) fn get_degree() -> usize {
         .expect("Cannot parse DEGREE env var as usize")
 }
 
-/// Encodes the data using rlc
-pub mod compose_rlc {
-    use eth_types::Field;
-    use gadgets::util::Expr;
-    use halo2_proofs::plonk::Expression;
+// pub mod compose_rlc {
+//     use eth_types::Field;
+//     use gadgets::util::Expr;
+//     use halo2_proofs::plonk::Expression;
 
-    // pub(crate) fn expr<F: Field>(
-    //     expressions: &[Expression<F>],
-    //     rs: &[Expression<F>],
-    // ) -> Expression<F> {
-    //     let mut rlc = 0.expr();
-    //     //let mut multiplier = r.clone();
-    //     for (expression, r) in expressions.iter().zip(rs) {
-    //         rlc = rlc + expression * r;
-    //     }
-    //     // for expression in expressions[1..].iter() {
-    //     //     rlc = rlc + expression.clone() * multiplier.clone();
-    //     //     multiplier = multiplier * r.clone();
-    //     // }
-    //     rlc
-    // }
-}
+//     // pub(crate) fn expr<F: Field>(
+//     //     expressions: &[Expression<F>],
+//     //     rs: &[Expression<F>],
+//     // ) -> Expression<F> {
+//     //     let mut rlc = 0.expr();
+//     //     //let mut multiplier = r.clone();
+//     //     for (expression, r) in expressions.iter().zip(rs) {
+//     //         rlc = rlc + expression * r;
+//     //     }
+//     //     // for expression in expressions[1..].iter() {
+//     //     //     rlc = rlc + expression.clone() * multiplier.clone();
+//     //     //     multiplier = multiplier * r.clone();
+//     //     // }
+//     //     rlc
+//     // }
+// }
