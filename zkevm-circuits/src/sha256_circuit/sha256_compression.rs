@@ -143,6 +143,14 @@ impl<F: Field> Sha256AssignedRows<F> {
         }
     }
 
+    /// Get assigned input words.
+    pub fn get_input_words(&self) -> Vec<Vec<AssignedCell<F, F>>> {
+        self.input_words
+            .chunks(Self::ROW_INPUT_PER_BLOCK)
+            .map(|words| words.to_vec())
+            .collect()
+    }
+
     /// Get H_IN assigned values.
     pub fn get_h_ins(&self) -> Vec<Vec<AssignedCell<F, F>>> {
         let mut assigned_h_ins = Vec::new();
