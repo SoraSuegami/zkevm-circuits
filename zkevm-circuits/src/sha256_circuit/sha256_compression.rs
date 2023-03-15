@@ -1,3 +1,4 @@
+pub use crate::sha256_circuit::util::H;
 use crate::sha256_circuit::util::*;
 use crate::{
     evm_circuit::util::{constraint_builder::BaseConstraintBuilder, not, rlc},
