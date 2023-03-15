@@ -123,6 +123,9 @@ pub struct Sha256AssignedRows<F: Field> {
 // }
 
 impl<F: Field> Sha256AssignedRows<F> {
+    const ROW_H_IN_PER_BLOCK: usize = 4;
+    const ROW_H_OUT_PER_BLOCK: usize = 4;
+    const ROW_INPUT_PER_BLOCK: usize = 16;
     /// Init [`Sha256AssignedRows`]
     pub fn new(offset: usize) -> Self {
         Self {
@@ -137,6 +140,52 @@ impl<F: Field> Sha256AssignedRows<F> {
             h_a_out: vec![],
             h_e_out: vec![],
         }
+    }
+
+    /// Get H_IN assigned values.
+    pub fn get_h_ins(&self) -> Vec<Vec<AssignedCell<F, F>>> {
+        let mut assigned_h_ins = Vec::new();
+        let num_block = self.h_a_in.len() / Self::ROW_H_IN_PER_BLOCK;
+        for idx in 0..num_block {
+            let h_a_in =
+                &self.h_a_in[Self::ROW_H_IN_PER_BLOCK * idx..Self::ROW_H_IN_PER_BLOCK * (idx + 1)];
+            let h_e_in =
+                &self.h_e_in[Self::ROW_H_IN_PER_BLOCK * idx..Self::ROW_H_IN_PER_BLOCK * (idx + 1)];
+            assigned_h_ins.push(vec![
+                h_a_in[3].clone(),
+                h_a_in[2].clone(),
+                h_a_in[1].clone(),
+                h_a_in[0].clone(),
+                h_e_in[3].clone(),
+                h_e_in[2].clone(),
+                h_e_in[1].clone(),
+                h_e_in[0].clone(),
+            ]);
+        }
+        assigned_h_ins
+    }
+
+    /// Get H_OUR assigned values.
+    pub fn get_h_outs(&self) -> Vec<Vec<AssignedCell<F, F>>> {
+        let mut assigned_h_outs = Vec::new();
+        let num_block = self.h_a_out.len() / Self::ROW_H_OUT_PER_BLOCK;
+        for idx in 0..num_block {
+            let h_a_out = &self.h_a_out
+                [Self::ROW_H_OUT_PER_BLOCK * idx..Self::ROW_H_OUT_PER_BLOCK * (idx + 1)];
+            let h_e_out = &self.h_e_out
+                [Self::ROW_H_OUT_PER_BLOCK * idx..Self::ROW_H_OUT_PER_BLOCK * (idx + 1)];
+            assigned_h_outs.push(vec![
+                h_a_out[3].clone(),
+                h_a_out[2].clone(),
+                h_a_out[1].clone(),
+                h_a_out[0].clone(),
+                h_e_out[3].clone(),
+                h_e_out[2].clone(),
+                h_e_out[1].clone(),
+                h_e_out[0].clone(),
+            ]);
+        }
+        assigned_h_outs
     }
 
     /// Append other assigned rows to myself.
@@ -1874,13 +1923,13 @@ mod tests {
                 || "digest double",
                 |mut region| {
                     // sha256chip1.digest(&mut region, &self.input[0..self.input.len() / 2]);
-                    let mut assigned_rows = Sha256AssignedRows::<F>::new(0);
+                    let mut assigned_rows1 = Sha256AssignedRows::<F>::new(0);
                     config.sha256_configs[0].assign_witness(
                         &mut region,
                         &witness0,
-                        &mut assigned_rows,
+                        &mut assigned_rows1,
                     )?;
-                    let mut new_assigned_rows = match self.strategy {
+                    let mut assigned_rows2 = match self.strategy {
                         Sha256Strategy::Vertical => {
                             Sha256AssignedRows::new(Sha256CompressionConfig::<F>::ROWS_PER_BLOCK)
                         }
@@ -1890,8 +1939,14 @@ mod tests {
                         Sha256Strategy::Vertical => &config.sha256_configs[0],
                         Sha256Strategy::Horizontal => &config.sha256_configs[1],
                     };
-                    next_config.assign_witness(&mut region, &witness1, &mut new_assigned_rows)?;
-
+                    next_config.assign_witness(&mut region, &witness1, &mut assigned_rows2)?;
+                    let h_outs = assigned_rows1.get_h_outs();
+                    assert_eq!(h_outs.len(), 1);
+                    let h_ins = assigned_rows2.get_h_ins();
+                    assert_eq!(h_ins.len(), 1);
+                    for (h_in, h_out) in h_ins[0].iter().zip(h_outs[0].iter()) {
+                        region.constrain_equal(h_in.cell(), h_out.cell())?;
+                    }
                     Ok(())
                 },
             )?;
