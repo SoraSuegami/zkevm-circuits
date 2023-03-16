@@ -909,7 +909,6 @@ impl<F: Field> Sha256CompressionConfig<F> {
         assigned_rows: &mut Sha256AssignedRows<F>,
     ) -> Result<(), Error> {
         let offset = assigned_rows.offset;
-        println!("offset {}", offset);
         assigned_rows.offset += 1;
         let round = offset % (NUM_ROUNDS + 8);
         // let cur_offset = offset - pre_sha2_row_numbers;
